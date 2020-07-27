@@ -1,0 +1,388 @@
+#!/bin/bash
+
+SERVER="~/Server"
+ALL_COMMANDS=("export" "zip" "db" "dumpdb" "deploy" "debug" "redeploy" "clean" "send" "quit")
+MYSQL_CONFIG='/mybin/presta_script/mysql_config'
+PROD_SERVER_IP="enter_ip_here"
+DESTINATION="/var/www"
+MIGRATION_INFO_FILE="migration_info.txt"
+LIVE_DOMAIN="live-domain.com"
+
+
+function start {
+    #   Ask to enter command if not passed with arguments
+    if [ $# -eq 0 ]; then
+        local input=''
+        while [[ ! " ${ALL_COMMANDS[@]} " =~ " $input " ]]
+        do
+            echo -e "\e[1m Choose option: \e[0m"
+            printf '* %s\n'  "${ALL_COMMANDS[@]}"
+            read -p "Enter: " input
+        done
+    else
+        input=$1
+    fi
+    
+    #   Main Switch
+    
+    case "$input" in
+        "export")
+            prepare_zip $2
+            transfer
+        ;;
+        "zip")
+            prepare_zip $2
+        ;;
+        "deploy")
+            deploy $2
+        ;;
+        "redeploy")
+            prepare_zip $2
+            deploy $EXPORT_ZIP
+        ;;
+        "db")
+            db $2
+        ;;
+        "dumpdb")
+            exportDB "local"
+        ;;
+        "clean")
+            clean $2
+        ;;
+        "send")
+            transfer $2
+        ;;
+        "debug")
+            debug
+        ;;
+        "quit")
+            echo "Stopped"
+        ;;
+        *)
+            echo "No such option"
+            printf '* %s\n'  "${ALL_COMMANDS[@]}"
+        ;;
+    esac
+}
+
+function debug {
+    grep -q "define('_PS_MODE_DEV_', false" config/defines.inc.php
+    
+    if [ $? -eq 0 ]; then
+        sed -i "s/define('_PS_MODE_DEV_', false);/define('_PS_MODE_DEV_', true);/" config/defines.inc.php
+        check
+        echo "Debug mode turned on"
+    else
+        sed -i "s/define('_PS_MODE_DEV_', true);/define('_PS_MODE_DEV_', false);/" config/defines.inc.php
+        check
+        echo "Debug mode turned off"
+    fi
+}
+
+function clean {
+    echo "Cleaning..."
+    
+    rm -rf $SERVER"/deploy_presta_project/" &&
+    rm -rf $SERVER"/"*"-prcopy"*
+    
+    check
+}
+
+function db {
+    echo "select domain from ps_shop_url;" | mysql --defaults-extra-file=$MYSQL_CONFIG $1
+}
+
+function deploy {
+    
+    if [[ -z $EXPORT_ZIP ]]; then
+        import_zip_name=$1
+        
+        # Ask to enter project zip file name
+        while [[ -z $import_zip_name ]]; do
+            echo "Please enter zip file name that you want to deploy"
+            read -p "Enter: " import_zip_name
+        done
+        EXPORT_ZIP=$DESTINATION'/'$import_zip_name
+    fi
+    
+    echo "Starting deployment procedures..."
+    
+    extract
+    uploadDB
+    givePermissions
+    
+}
+
+function givePermissions {
+    echo $DEPLOY_DIR
+    chmod -R 777 $DEPLOY_DIR
+}
+
+function uploadDB {
+    echo "Deploying database.."
+    DB="$(grep 'DB' $DEPLOY_DIR'/'$MIGRATION_INFO_FILE | awk '{print $2}')"
+    
+    echo "Deleting old database if exists and creating new one '$DB'..."
+    echo "DROP DATABASE IF EXISTS $DB; CREATE DATABASE $DB;" | mysql --defaults-extra-file=$MYSQL_CONFIG
+    check
+    
+    echo "Uploading sql file..."
+    mysql --defaults-extra-file=$MYSQL_CONFIG $DB < $DEPLOY_DIR'/db_export.sql'
+    check
+}
+
+function extract {
+    
+    DEPLOY_DIR=$SERVER'/deploy_project'
+    
+    if [ -d $DEPLOY_DIR ]; then
+        rm -rf $DEPLOY_DIR
+        echo "$DEPLOY_DIR deleted"
+    fi
+    
+    mkdir $DEPLOY_DIR &&
+    echo "Extracting..." &&
+    unzip $EXPORT_ZIP -d $DEPLOY_DIR >> /dev/null
+    
+    if [ $? -eq 0 ]; then
+        project_name="$(grep 'PROJECT_NAME' $DEPLOY_DIR'/'$MIGRATION_INFO_FILE | awk '{print $2}')"
+        
+        if [ -d $SERVER'/'$project_name ]; then
+            # echo "$SERVER'/'$project_name already exist. Delete? (y/n)"
+            # read delete
+            # if [ $delete = y ]; then
+            #     rm -rf $SERVER'/'$project_name
+            #     echo "Deleted"
+            # else
+            #     echo "quiting"
+            #     exit 1
+            # fi
+            echo "Deleting old '$SERVER/$project_name' dir"
+            rm -rf $SERVER'/'$project_name
+            check
+        fi
+        
+        mv $DEPLOY_DIR $DESTINATION'/'$project_name
+        
+        if [ $? -eq 0 ]; then
+            DEPLOY_DIR=$SERVER'/'$project_name
+            echo "Extracted to $DEPLOY_DIR"
+            okMsg
+        else
+            failMsg "Renaming failed"
+        fi
+    else
+        failMsg "Extracting failed"
+    fi
+}
+
+function transfer {
+    if [ ! $# -eq 0 ]; then
+        EXPORT_ZIP=$1
+    fi
+    
+    echo "Zip will be sent to $PROD_SERVER_IP:$DESTINATION"
+    echo "Transfering..."
+    sudo -u mantas scp $EXPORT_ZIP $PROD_SERVER_IP':'$DESTINATION
+    
+    if [ $? -eq 0 ]; then
+        okMsg
+    else
+        failMsg "Could not transfer"
+    fi
+}
+
+function prepare_zip {
+    
+    projectName=$1
+    
+    # Ask to enter project name if not already entered
+    while [[ -z $projectName ]]; do
+        echo "Please enter which project you want to export from '$SERVER'"
+        read -p "Enter: " projectName
+    done
+    
+    echo "Export started..."
+    
+    copyDir $projectName
+    exportDB
+    removeGIT
+    changeAllDomainOccurances
+    compress
+    removeCopy
+}
+
+function removeCopy {
+    echo "Removing copied directory..."
+    rm -rf $NEW_DIR
+    
+    if [ $? -eq 0 ]; then
+        okMsg
+    else
+        failMsg "Could not remove copied dir - $NEW_DIR" -c
+    fi
+}
+
+function compress {
+    
+    echo "Compressing..."
+    date=$(date +"%m-%d-%Y")
+    echo "MIGRATION_DATE $date" >> $NEW_DIR'/'$MIGRATION_INFO_FILE
+    EXPORT_ZIP=$NEW_DIR"-$date.zip"
+    
+    # zip -jr $EXPORT_ZIP $NEW_DIR'/' >> /dev/null
+    
+    pushd $NEW_DIR
+    zip -r $EXPORT_ZIP . >> /dev/null
+    popd
+    
+    if [ $? -eq 0 ]; then
+        du -h $EXPORT_ZIP
+        okMsg
+    else
+        failMsg "Could not change all occurances"
+    fi
+}
+
+function changeAllDomainOccurances {
+    while [[ -z $LOCAL_DOMAIN ]]; do
+        LOCAL_DOMAIN="$(echo "select domain from ps_shop_url;" | mysql --defaults-extra-file=$MYSQL_CONFIG $DB | tr '\n' ' ' | awk '{print $2}')"
+        # LOCAL_DOMAIN="$( sed 's/domain//' $LOCAL_DOMAIN)"
+        echo $LOCAL_DOMAIN
+    done
+    
+    while [[ -z $LIVE_DOMAIN ]]; do
+        echo "Enter live domain: "
+        read -p "Enter: " LIVE_DOMAIN
+    done
+    
+    # LIVE_DOMAIN=$LOCAL_DOMAIN
+    
+    echo "Changing all occurances of '$LOCAL_DOMAIN' to '$LIVE_DOMAIN'"
+    
+    local_count=$(grep -roh $LOCAL_DOMAIN $NEW_DIR | wc -w)
+    
+    find $NEW_DIR -type f -exec sed -i "s/$LOCAL_DOMAIN/$LIVE_DOMAIN/g" {} +
+    
+    live_count=$(grep -roh $LIVE_DOMAIN $NEW_DIR | wc -w)
+    
+    if [ $? -eq 0 ]; then
+        if (( $local_count == $live_count )); then
+            echo "Changed $live_count occurances"
+        else
+            warningMsg "Occurance counter doesn't match. $LOCAL_DOMAIN: $local_count, $LIVE_DOMAIN: $live_count"
+        fi
+        okMsg
+    else
+        failMsg "Could not change all occurances"
+    fi
+    
+    echo "LOCAL_DOMAIN $LOCAL_DOMAIN" >> $NEW_DIR'/'$MIGRATION_INFO_FILE
+    echo "LIVE_DOMAIN $LIVE_DOMAIN" >> $NEW_DIR'/'$MIGRATION_INFO_FILE
+}
+
+function removeGIT {
+    
+    if [[ -d $NEW_DIR'/.git' ]]; then
+        echo "Deleting .git folder..."
+        rm -rf $NEW_DIR'/.git'
+        if [ $? -eq 0 ]; then
+            okMsg
+        else
+            failMsg "Could not delete .git folder"
+        fi
+    else
+        echo ".git folder not detected"
+    fi
+    
+}
+
+function exportDB {
+    
+    if [ $1 = "local" ]; then
+        NEW_DIR="$(pwd)"
+    fi
+    
+    if [[ -z $DB ]]; then
+        echo "Finding db name..."
+        DB="$(grep 'database_name' $NEW_DIR'/app/config/parameters.php' | awk '{print $3}' | tr -d ',' | tr -d $'\'')"
+        check
+    fi
+    
+    echo "Exporting database '$DB'..."
+    
+    mysqldump --defaults-extra-file=$MYSQL_CONFIG $DB > $NEW_DIR'/db_export.sql'
+    if [ $? -eq 0 ]; then
+        echo "Exported to "$NEW_DIR'/db_export.sql'
+        okMsg
+    else
+        failMsg "Could not export database"
+    fi
+    
+    echo "DB_NAME $DB" >> $NEW_DIR'/'$MIGRATION_INFO_FILE
+}
+
+function copyDir {
+    
+    dir=$SERVER"/$1"
+    echo "Stared copying directory: $dir "
+    
+    NEW_DIR=$dir'-copy'
+    
+    if [ -d "$dir" ]; then
+        counter=0
+        while [ -d "$NEW_DIR" ]; do
+            counter=$((counter+1))
+            NEW_DIR=$dir'-copy'$counter
+        done
+        echo "Copying to $NEW_DIR"
+        cp -r $dir $NEW_DIR
+        
+        if [ $? -eq 0 ]; then
+            okMsg
+        else
+            failMsg "Could not copy directory"
+        fi
+    else
+        failMsg "directory doesn't exist"
+    fi
+    
+    > $NEW_DIR'/'$MIGRATION_INFO_FILE
+    echo "PROJECT_NAME $1" >> $NEW_DIR'/'$MIGRATION_INFO_FILE
+}
+
+function check {
+    if [ $? -eq 0 ]; then
+        # if [ $1 = "-s" ]; then
+        #     echo "$2"
+        # fi
+        okMsg
+    else
+        failMsg
+        # if [ $1 = "-e" ]; then
+        #     echo "$2"
+        # fi
+    fi
+}
+
+function failMsg {
+    echo -e "\e[31mFailed\e[0m"
+    if  [[ ! -z $1 ]]; then
+        echo -e "\e[31mReason: \e[0m" $1
+    fi
+    if  [[ $2 != "-c" ]]; then
+        exit 1
+    fi
+}
+
+function okMsg {
+    echo -e "\e[32mSuccess\e[0m" $1
+}
+
+function warningMsg {
+    echo -e "\e[33mWarning\e[0m"
+    echo -e "\e[33mReason: \e[0m" $1
+}
+
+
+start $@

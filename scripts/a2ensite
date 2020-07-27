@@ -1,0 +1,3 @@
+#!/bin/bash 
+
+sudo ln -s -v /etc/httpd/sites-available/$1 /etc/httpd/sites-enabled/$1

@@ -1,0 +1,34 @@
+#!/bin/bash 
+
+# ls
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+# cs
+alias ~='cd ~'
+alias -- -="cd -"  
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias .....='cd ../../../..'
+alias ......='cd ../../../../..'
+
+# go to places
+alias root="cd /"
+alias home="cd ~"
+alias docs="cd ~/Documents"
+alias downs="cd ~/Downloads"
+alias desktop="cd ~/Desktop"
+alias pics="cd ~/Pictures"
+alias word="cd ~/wordpress"
+alias plugins="cd ~/wordpress/plugins"
+alias dots="cd ~/dotfiles"
+alias dotfiles="cd ~/dotfiles"
+alias scripts="cd ~/dotfiles/scripts"
+alias py='cd ~/py'
+alias apache="cd /etc/httpd"
+alias sites='cd /etc/httpd/sites-available/'
+alias www='cd /var/www'
+alias themes='cd /usr/share/themes'
+alias icons='cd /usr/share/icons'

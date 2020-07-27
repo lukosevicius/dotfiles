@@ -1,0 +1,5 @@
+#!/bin/bash
+
+nmcli r wifi off &&
+nmcli r wifi on &&
+echo 'Wifi has been restarted'

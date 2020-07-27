@@ -1,0 +1,5 @@
+#!/bin/bash
+
+mysqldump honey > db.sql
+sed -i'' -e "s/local.test/live.test/g" db.sql
+

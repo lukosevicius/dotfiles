@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# if ! [ -x "$(command -v wmctrl)" ]; then
+#     echo 'Installing missing dependecy - wmctrl.' >&2
+#     # sudo apt install wmctrl
+#     sudo dnf install wmctrl
+# fi
+
+# if ! [ -x "$(command -v xdotool)" ]; then
+#     echo 'Installing missing dependecy - xdotool.' >&2
+#     sudo apt install xdotool
+# fi
+
+if ps aux | grep "[g]nome-terminal" > /dev/null                                                                                                                                                                                
+    then xdotool windowactivate $(xdotool search --onlyvisible --class gnome-terminal)                                                                                                                                            
+    else gnome-terminal&                                                                                                                                                                                                          
+fi   
+
+# if [ "$(xdotool getwindowfocus)" -eq  "83470" ]; then
+#    echo I have the focus
+#    else
+#    echo no
+# fi  

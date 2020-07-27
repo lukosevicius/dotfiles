@@ -1,0 +1,41 @@
+#!/bin/bash
+
+echo "DB dumping started..."
+
+input="myconfig"
+cnt=0
+while IFS= read -r line
+do
+  let "cnt++"
+
+  case "$cnt" in
+        1)
+		db=$line
+        ;;
+        2)
+                localdom=$line
+        ;;
+        3)
+                livedom=$line
+        ;;
+ 
+  *)
+  esac
+
+done < "$input"
+
+echo "dumping database: "$db
+
+
+mysqldump $db > db.sql
+if [ $? -eq 0 ]; then
+        rm db_*
+        time=`date "+%m%d-%H%M"`
+        filename=db_$time.sql
+        mv db.sql $filename
+#	echo "changing all occurances from "$localdom" to "$livedom
+ #       sed -i -e "s/bm.test/bm.webby.lt/g" $filename
+        echo sql dump success: $filename
+else
+        echo sql dump failed
+fi

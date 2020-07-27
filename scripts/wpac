@@ -1,0 +1,65 @@
+#!/bin/bash
+
+ALL_COMMANDS=("get", "create", "show")
+STORAGE=~/wordpress/packages/
+
+
+function start {
+    #   Ask to enter command if not passed with arguments
+    if [ $# -eq 0 ]; then
+        echo "Available commands:"
+        echo "${ALL_COMMANDS[@]}"
+    fi
+    
+    #   Main Switch
+    
+    case "$1" in
+        "get")
+            get $2 $3
+        ;;        
+        "create")
+            create $2 $3
+        ;;        
+        "show")
+            show
+        ;;
+        *)
+            echo "Available commands:"
+            echo "${ALL_COMMANDS[@]}"
+        ;;
+    esac
+}
+
+function show {
+    echo -e "Packages are stored in: \e[32m"$STORAGE"\e[0m"
+    echo "List:"
+    ls $STORAGE
+}
+
+function create {
+    mkdir $1
+    mkdir $1/logs
+    sudo chmod -R 777 $1
+
+    get $1 $1 
+}
+
+function get {
+    # check if project name was passed
+    if [ -n "$1" ]; then
+        path=$STORAGE$1
+        # check if dir exists
+        if [ -d $path ]; then
+            [ -z "$2" ] && destination=. || destination=$2
+            cp -r $path'/.' $destination &&
+            echo "copied $1"
+        else
+            echo "project doesn't exist"
+        fi
+    else
+        echo "no arguments"
+    fi
+}
+
+
+start "$@"

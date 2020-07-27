@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [ $# == 1 ]; then
+    if [ $1 = "create" ]; then
+        ssh-keygen -t rsa -C "man.lukosevicius@gmail.com"
+    fi
+fi
+cat ~/.ssh/id_rsa.pub

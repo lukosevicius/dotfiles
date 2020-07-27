@@ -1,0 +1,4 @@
+#!/bin/bash
+
+echo "MY CRON LOG from /home/mantas/logs/cron"
+tail /home/mantas/logs/cron

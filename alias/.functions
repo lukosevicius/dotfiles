@@ -1,0 +1,88 @@
+#!/bin/bash 
+
+# Create a new directory and enter it
+function mk() {
+  mkdir -p "$@" && cd "$@"
+}
+
+function ch() {
+  if [ -z $1 ]
+  then
+    sudo chmod -R 777 *
+    return
+  fi
+
+  # check if no second argument
+  if [ -z $2 ]
+  then
+    if [ $1 == "bin" ]
+    then
+      sudo chmod -R 777 ~/bin
+    else
+      sudo chmod -R $1 *
+    fi
+  else
+      sudo chmod -R $1 $2
+  fi
+}
+
+# Copy the latest download to current dir
+function cpdown() {
+  unset -v latest
+  for file in ~/Downloads/*; do
+    [[ $file -nt $latest ]] && latest=$file
+  done
+
+  cp $latest . &&
+  echo "copied $latest"
+}
+
+# Move the latest download to current dir
+function mvdown() {
+  unset -v latest
+  for file in ~/Downloads/*; do
+    [[ $file -nt $latest ]] && latest=$file
+  done
+
+  mv $latest . &&
+  echo "moved $latest"
+}
+
+# unzip and remove
+function unziprm() {
+  unzip $1 && rm $1
+}
+# untar and remove
+function untarrm() {
+  untar $1 && rm $1
+}
+
+# unzip and remove latest file
+# function unziprml() {
+#   unset -v latest
+#   for file in $pwd; do
+#     [[ $file -nt $latest ]] && latest=$file
+#   done
+
+#   # unzip $1 && rm $1 &&
+#   echo "unziped and removed $latest"
+# }
+
+# edit
+
+function wpinstall() {
+  if [ -z "$1" ];
+    then
+      echo "Please provide project name"
+      return
+  fi
+
+  wp core install --url='http://'$1'.local' --title=$1 --admin_user='admin' --admin_password='admin' --admin_email='man.lukosevicius@gmail.com'
+}
+
+function backup() {
+  name="backup-$(date +"%Y-%m-%d_%H-%M").zip"
+
+  zip -r $name * > /dev/null &&
+  echo "zipped all files to "$name
+}

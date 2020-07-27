@@ -1,0 +1,23 @@
+#!/bin/bash
+
+create_script() {
+    sudo touch $1 &&
+    sudo chmod -R 777 $1 &&
+    sudo echo "#!/bin/bash" >> $1
+    sudo echo "" >> $1
+    sudo echo "echo 'hello from new script - $1'" >> $1 &&
+    echo 'script was created'
+    echo '~/bin/'$1
+}
+
+if [ $# -eq 1 ];
+then
+    create_script '~/bin/'$1
+else
+    echo "Please enter name of the script:"
+    read
+    create_script '~/bin/'$REPLY
+fi
+
+
+

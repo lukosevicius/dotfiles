@@ -1,0 +1,13 @@
+#!/bin/bash
+
+function print {
+    echo -e "\e[35m$1\e[0m" 
+}
+
+print "Database: "
+mysql -V
+print "Users info:"
+# sudo mysql -e "DESCRIBE mysql.user"
+sudo mysql -e "SELECT host, user, authentication_string FROM mysql.user WHERE user NOT LIKE '%mysql%' AND user NOT LIKE '%sys%' "
+
+# UPDATE mysql.user SET authentication_string='root' WHERE user='root';

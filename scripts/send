@@ -1,0 +1,78 @@
+#!/bin/bash
+
+HOME_IP="ip-here"
+HOME_FOLDER="/home/mantas/incoming"
+ALL_COMMANDS=("home" "honey" "quit")
+HONEY_IP="root@ip-here"
+HONEY_FOLDER="/var/www/incoming"
+
+
+function start {
+    #   Ask to enter command if not passed with arguments
+    if [ $# -eq 0 ]; then
+        local destination=''
+        while [[ ! " ${ALL_COMMANDS[@]} " =~ " $destination " ]]
+        do
+            echo -e "\e[1m Choose option: \e[0m"
+            printf '* %s\n'  "${ALL_COMMANDS[@]}"
+            read -p "Enter: " destination
+        done
+    else
+        destination=$1
+        package=$2
+    fi
+    
+    #   Main Switch 
+    
+    case "$destination" in
+        "home")
+            ip=$HOME_IP
+            folder=$HOME_FOLDER
+            transfer
+        ;;
+        "honey")
+            ip=$HONEY_IP
+            folder=$HONEY_FOLDER
+            transfer
+        ;;
+        "quit")
+            echo "Stopped"
+        ;;
+        *)
+            echo "No such option"
+            printf '* %s\n'  "${ALL_COMMANDS[@]}"
+        ;;
+    esac
+}
+
+function transfer {
+    if [ ! $# -eq 0 ]; then
+        EXPORT_ZIP=$1
+    fi
+
+    echo "$package will be sent to $ip:$folder"
+    echo "Transfering..."
+    scp $package $ip':'$folder
+    
+    if [ $? -eq 0 ]; then
+        okMsg
+    else
+        errorMsg "Could not transfer"
+    fi
+}
+
+function errorMsg {
+    echo -e "\e[31mFailed\e[0m"
+    if  [[ ! -z $1 ]]; then
+        echo -e "\e[31mReason: \e[0m" $1
+    fi
+    if  [[ $2 != "-c" ]]; then
+        exit 1
+    fi
+}
+
+function okMsg {
+    echo -e "\e[32mSuccess\e[0m" $1
+}
+
+start $@

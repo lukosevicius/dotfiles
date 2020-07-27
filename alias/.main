@@ -1,0 +1,46 @@
+#!/bin/bash 
+
+# alias sbrc='source ~/.bashrc'
+alias sc='source ~/.zshrc'
+alias szsh='source ~/.zshrc'
+
+alias c="clear"
+alias q="exit"
+alias s='sudo'
+alias hosts='sudo vi /etc/hosts'
+
+# programs
+alias v='sudo vim'
+alias vi="echo 'use v'"
+alias vim="echo 'use v'"
+
+alias mysql='sudo mysql'
+alias p='python3'
+alias python='python3'
+
+alias dots-origin="echo git remote add origin git@github.com:lukosevicius/dotfiles.git"
+
+
+alias rmrf='sudo rm -rf'
+# alias rmrf*='sudo rm -rf * && sudo rm -rf .*'
+
+alias ldu='du -cks * | sort -rn | head -15' # Lists the size of all the folders
+alias psg='ps aux | grep'
+
+
+# php
+alias phpinfo="echo '<?php phpinfo(); ?>' > index.php"
+
+# Make cp and mv print info, what was done
+alias cp="cp -iv"
+alias mv="mv -iv"
+
+# get
+alias get-bedrock="wget https://github.com/roots/bedrock/archive/master.zip && unzip master.zip && rm master.zip && mv bedrock-master/* . && rm -rf bedrock-master/"
+
+alias inc="mv /var/www/incoming/* ."
+
+alias getlamp="wget --no-cache -O - https://gist.github.com/EmpireWorld/737fbb9f403d4dd66dee1364d866ba7e/raw/install-lamp.sh | bash"
+alias getgravdeps="sudo apt-get install php7.4-mbstring php7.4-curl php7.4-zip php7.4-dom php7.4-gd"
+# sudo apt composer install
+# sudo a2enmod rewrite

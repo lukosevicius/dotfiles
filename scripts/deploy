@@ -1,0 +1,68 @@
+#!/bin/bash
+
+PROJECT_DIR=$(pwd)
+TIMESTAMP=`date +%Y-%m-%d_%H-%M-%S`
+DEPLOY_DIR=$PROJECT_DIR'/releases/'$TIMESTAMP
+if [ $# -eq 0 ]; then
+    PROJECT_NAME='honey-buddies'
+else
+    PROJECT_NAME=$1
+fi
+REPO='git@github.com:lukosevicius/'$PROJECT_NAME'.git'
+
+function start {
+    echo "Starting deployment sequence of "$PROJECT_NAME
+    mkdir -p releases && echo "mkdir -p releases"
+    download
+    updateCurrent
+    createShared
+}
+
+function createShared {
+    SHARED_DIR=$PROJECT_DIR'/shared'
+
+    mkdir -p $SHARED_DIR
+    
+    # .env
+    touch $SHARED_DIR'/.env'
+    ln -sf $SHARED_DIR'/.env' $DEPLOY_DIR'/.env'
+
+    # uploads
+    mkdir -p $SHARED_DIR'/uploads/'
+
+    if [ -d "$DEPLOY_DIR/web/app/uploads" ]; 
+        then 
+            rm -rf $DEPLOY_DIR'/web/app/uploads'
+    fi
+    ln -sf $SHARED_DIR'/uploads' $DEPLOY_DIR'/web/app/uploads'
+}
+
+function updateCurrent {
+    ln -sf $DEPLOY_DIR current
+}
+
+function download {
+    mkdir $DEPLOY_DIR && echo "mkdir -p $DEPLOY_DIR"
+    msg "Start deployment..."
+    git clone $REPO $DEPLOY_DIR --progress && ok
+}
+
+function removeOldReleases {
+    releasesCount=`ls releases/ | wc -l`
+
+    if [ $releasesCount -gt $1 ] ; then 
+        echo "more than "$1
+    else
+        echo "less than "$1
+    fi
+}
+
+function msg {
+    echo -e "\e[33m"$1"\e[0m" 
+}
+
+function ok {
+    echo -e "\e[32mSuccess\e[0m" $1
+}
+
+start $@

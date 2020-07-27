@@ -1,0 +1,66 @@
+#!/bin/bash
+
+where_to_look=~/Downloads
+
+case "$1" in
+    "")
+        where_to_look=~/Downloads
+    ;;       
+    "downloads")
+        where_to_look=~/Downloads
+    ;;        
+    "down")
+        where_to_look=~/Downloads
+    ;;    
+    "desktop")
+        where_to_look=~/Desktop
+    ;;      
+    "documents")
+        where_to_look=~/Documents
+    ;;     
+    "docs")
+        where_to_look=~/Documents
+    ;;       
+    "doc")
+        where_to_look=~/Documents
+    ;;   
+    "pic")
+        where_to_look=~/Pictures
+    ;;                
+    "pics")
+        where_to_look=~/Pictures
+    ;;             
+    "pictures")
+        where_to_look=~/Pictures
+    ;;           
+    "videos")
+        where_to_look=~/Videos
+    ;;           
+    *)
+        echo "don't know this place:("
+        exit 0
+    ;;
+esac
+
+where_to_look_basename = "`basename $where_to_look`"
+echo -e "Checking in \e[32m$where_to_look\e[0m"
+
+count=`ls -alF $where_to_look | wc -l`
+
+if (( count <= 3 )); then
+    echo "No files here :("
+    exit 0
+fi
+
+latest_file_full=`find $where_to_look -maxdepth 1 -type f -printf '%T+ %p\n' | sort -r | head -n 1`
+echo "Latest file here:"
+echo -e "\e[32m$latest_file_full\e[0m"
+
+read -r -p "Are you sure? [Y/n] " response
+if [[ "$response" =~ ^([nN])$ ]]
+then
+    exit 0
+fi
+
+latest_file=`find $where_to_look -maxdepth 1 -type f -printf '%T+ %p\n'  | sort -r | head -n 1 | cut -d ' ' -f2-`
+sudo cp -iv "$latest_file" . 
