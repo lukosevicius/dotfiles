@@ -70,19 +70,32 @@ function untarrm() {
 
 # edit
 
-function wpinstall() {
-  if [ -z "$1" ];
-    then
-      echo "Please provide project name"
-      return
-  fi
-
-  wp core install --url='http://'$1'.local' --title=$1 --admin_user='admin' --admin_password='admin' --admin_email='man.lukosevicius@gmail.com'
-}
-
+# zip all files in current directory, with name backup-(current_date).zip
 function backup() {
   name="backup-$(date +"%Y-%m-%d_%H-%M").zip"
 
   zip -r $name * > /dev/null &&
   echo "zipped all files to "$name
+}
+
+# Open /var/www directory or one of it's subfolders it argument is given
+function ww() {
+  if [ -z $1 ]
+  then
+    cd /var/www
+    return
+  fi
+
+  cd /var/www/$1/html
+}
+
+# same function as ww
+function www() {
+  if [ -z $1 ]
+  then
+    cd /var/www
+    return
+  fi
+
+  cd /var/www/$1/html
 }

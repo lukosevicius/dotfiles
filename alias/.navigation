@@ -29,6 +29,6 @@ alias scripts="cd ~/dotfiles/scripts"
 alias py='cd ~/py'
 alias apache="cd /etc/httpd"
 alias sites='cd /etc/httpd/sites-available/'
-alias www='cd /var/www'
+# alias www='cd /var/www'
 alias themes='cd /usr/share/themes'
 alias icons='cd /usr/share/icons'
