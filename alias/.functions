@@ -6,23 +6,27 @@ function mk() {
 }
 
 function ch() {
-  if [ -z $1 ]
+  if [ -z "$1" ]
   then
-    sudo chmod -R 777 *
+    sudo chmod -R 777 * &&
+    echo -e "all files permissions here changed to \e[32m""777""\e[0m"
+    return
+  fi
+  
+  if [ ! -z $1 ] && [ -z $2 ]
+  then
+    sudo chmod -R $1 * &&
+    echo -e "all files permissions here changed to \e[32m"$1"\e[0m" &&
     return
   fi
 
-  # check if no second argument
-  if [ -z $2 ]
+  if [[ "$2" == "scripts" ]]
   then
-    if [ $1 == "bin" ]
-    then
-      sudo chmod -R 777 ~/bin
-    else
-      sudo chmod -R $1 *
-    fi
+      sudo chmod -R $1 ~/dotfiles/scripts &&
+      echo -e "all scripts permissions here changed to \e[32m"$1"\e[0m" &&
   else
-      sudo chmod -R $1 $2
+      sudo chmod -R $1 $2 && 
+      echo -e "all $2 permissions here changed to \e[32m"$1"\e[0m" &&
   fi
 }
 

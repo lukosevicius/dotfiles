@@ -1,9 +1,6 @@
 # alias
 alias/.ssh
 
-# scripts
-scripts/mysql_config
-
 #config
 config/*
 !config/*_example
