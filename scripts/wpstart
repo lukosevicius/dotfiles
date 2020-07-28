@@ -1,0 +1,87 @@
+#!/bin/bash
+
+project_name=$1
+
+# DB
+dbname=$project_name
+dbuser=""
+dbpass=""
+
+# Site
+url=$project_name".local"
+title=$project_name
+admin_user=""
+admin_password=""
+admin_email="man.lukosevicius@gmail.com"
+
+# wpstart_config should just have 4 lines with these values:
+# db user
+# db password
+# wp admin user
+# wp admin password
+
+if [ ! -f /home/mantas/dotfiles/config/wpstart_config ]; then
+    echo "wpstart_config file not found"
+    exit 0
+fi
+
+count=0
+while IFS= read -r line; do
+    first_letter=${line:0:1}
+    if [ $first_letter != '#' ]
+    then
+        if [ $count == 0 ]
+        then
+            dbuser=$line
+        elif [ $count == 1 ]
+        then
+            dbpass=$line
+        elif [ $count == 2 ]
+        then
+            admin_user=$line
+            echo "Admin user: $admin_user"
+        elif [ $count == 3 ]
+        then
+            admin_password=$line
+            echo "Admin password: $admin_password"
+        fi
+        count=$((count+1))
+    fi
+done < /home/mantas/dotfiles/config/wpstart_config
+
+function start {
+    #   Ask to enter command if not passed with arguments
+    if [ $# == 0 ]; then
+        echo "Please provide project name"
+    else 
+        create_db
+        install
+        change_permissions
+        config
+    fi
+}
+
+function create_db {
+    sudo mysql -e "DROP DATABASE IF EXISTS "$dbname
+    sudo mysql -e "CREATE DATABASE "$dbname
+
+    echo "Created database \""$dbname"\""
+}
+
+function install {
+    wp core download &&
+    wp config create --dbname=$dbname --dbuser=$dbuser --dbpass=$dbpass &&
+    wp core install --url=$url --title=$title --admin_user=$admin_user --admin_password=$admin_password --admin_email=$admin_email
+}
+
+function change_permissions {
+    sudo chmod -R 777 *
+    echo "Change all files permissions to 755"
+}
+
+function config {
+    wp config set 'FS_METHOD' 'direct' --add
+    wp config set 'FS_DEBUG' 'true' --add
+}
+
+start $@

@@ -3,4 +3,7 @@ alias/.ssh
 
 # scripts
 scripts/mysql_config
-scripts/wpstart
+
+#config
+config/*
+!config/*_example
