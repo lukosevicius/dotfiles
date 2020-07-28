@@ -26,28 +26,6 @@ function ch() {
   fi
 }
 
-# Copy the latest download to current dir
-function cpdown() {
-  unset -v latest
-  for file in ~/Downloads/*; do
-    [[ $file -nt $latest ]] && latest=$file
-  done
-
-  cp $latest . &&
-  echo "copied $latest"
-}
-
-# Move the latest download to current dir
-function mvdown() {
-  unset -v latest
-  for file in ~/Downloads/*; do
-    [[ $file -nt $latest ]] && latest=$file
-  done
-
-  mv $latest . &&
-  echo "moved $latest"
-}
-
 # unzip and remove
 function unziprm() {
   unzip $1 && rm $1

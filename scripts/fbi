@@ -1,0 +1,16 @@
+#!/bin/bash
+
+while true
+do 
+    if nmcli d wifi list | grep FBI-surveillance
+    then
+        echo "connection found" 
+        break
+    else
+        echo "scanning...";
+    fi
+    sleep 2
+done
+
+nmcli c up FBI-surveillance &&
+echo "connected to FBI-surveillance"
