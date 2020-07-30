@@ -78,7 +78,7 @@ function ww() {
     return
   fi
 
-  cd /var/www/$1
+  cd /var/www/$1*
 }
 
 # same function as ww
