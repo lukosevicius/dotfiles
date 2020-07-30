@@ -15,6 +15,9 @@ sitesAvailable='/etc/httpd/sites-available/'
 userDir='/var/www/'
 sitesAvailabledomain=$sitesAvailable$domain.conf
 
+echo "Domain: "$domain
+echo "rootDir: "$rootDir
+
 if [ "$(whoami)" != 'root' ]; then
 	echo $"You have no permission to run $0 as non-root user. Use sudo"
 		exit 1;
@@ -84,9 +87,9 @@ if [ "$action" == 'create' ]
 				AllowOverride all
 				Require all granted
 			</Directory>
-			ErrorLog /var/www/$domain/log/$domain-error.log
+			ErrorLog $rootDir/log/$domain-error.log
 			LogLevel error
-			CustomLog /var/www/$domain/log/$domain-access.log combined
+			CustomLog $rootDir/log/$domain-access.log combined
 		</VirtualHost>" > $sitesAvailabledomain
 		then
 			echo -e $"There is an ERROR creating $domain file"
@@ -116,11 +119,11 @@ if [ "$action" == 'create' ]
 		fi
 
 		### enable website
-		a2ensite $domain
+		a2ensite $domain'.conf'
 
 		### restart Apache
-		# /etc/init.d/apache2 reload
-		sudo systemctl reload httpd.service
+		# /etc/init.d/apache2 restart
+		sudo systemctl restart httpd.service
 
 		### show the finished message
 		echo -e $"Complete! \nYou now have a new Virtual Host \nYour new host is: http://$domain \nAnd its located at $rootDir"
@@ -143,11 +146,11 @@ if [ "$action" == 'create' ]
 			fi
 
 			### disable website
-			a2dissite $domain
+			a2dissite $domain'.conf'
 
 			### restart Apache
-			# /etc/init.d/apache2 reload
-			sudo systemctl reload httpd.service
+			# /etc/init.d/apache2 restart
+			sudo systemctl restart httpd.service
 
 			### Delete virtual host rules files
 			rm $sitesAvailabledomain
