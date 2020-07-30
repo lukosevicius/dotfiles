@@ -54,10 +54,9 @@ if [ "$action" == 'create' ]
 		### check if directory exists or not
 		if ! [ -d $rootDir ]; then
 			### create the directories, for html and logs
-			mkdir -p $rootDir/html
 			mkdir -p $rootDir/log
-			# From now on $rootDir in $rootDir/html
-			rootDir=$rootDir/html
+			# From now on $rootDir in $rootDir
+			rootDir=$rootDir
 			### give permission to root dir
 			chmod 755 $rootDir
 			### write test file in the new domain dir

@@ -68,7 +68,7 @@ function ww() {
     return
   fi
 
-  cd /var/www/$1/html
+  cd /var/www/$1
 }
 
 # same function as ww
@@ -80,4 +80,13 @@ function www() {
   fi
 
   cd /var/www/$1/html
+}
+
+function wp-install(){
+  if [ -z $1 ]
+  then
+    echo "please provide project name"
+    return
+  fi
+  wp core install --url="http://"$1".local " --title=$1 --admin_user='admin' --admin_password='admin' --admin_email='man.lukosevicius@gmail.com'
 }
