@@ -17,9 +17,19 @@ plugins=(git)
 
 source $ZSH/oh-my-zsh.sh
 
+function addToPATH {
+  case ":$PATH:" in
+    *":$1:"*) :;; # already there
+    *) PATH="$1:$PATH";; # or PATH="$PATH:$1"
+  esac
+}
+
 # add dotfile's scripts to PATH
 if [ -d "$HOME/dotfiles/scripts" ] ; then
-    PATH="$HOME/dotfiles/scripts:$PATH" 
+    addToPATH $HOME/dotfiles/scripts
+fi
+if [ -d "$HOME/dotfiles/scripts/configure" ] ; then
+    addToPATH $HOME/dotfiles/scripts/configure
 fi
 
 # source all dotfiles (alias, functinos)
