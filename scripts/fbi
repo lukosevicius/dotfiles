@@ -1,5 +1,6 @@
 #!/bin/bash
 
+fbi_count=0
 while true
 do 
     if nmcli d wifi list | grep FBI-surveillance
@@ -7,7 +8,8 @@ do
         echo "connection found" 
         break
     else
-        echo "scanning...";
+        echo -ne "scanning... ($fbi_count) \r";
+        fbi_count=$(($fbi_count+1))
     fi
     sleep 2
 done

@@ -75,4 +75,4 @@ then
 fi
 
 latest_file=`find $where_to_look -maxdepth 1 -type f -printf '%T+ %p\n'  | sort -r | head -n 1 | cut -d ' ' -f2-`
-sudo cp -iv "$latest_file" . 
+sudo mv -iv "$latest_file" . 
