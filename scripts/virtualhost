@@ -10,8 +10,13 @@ owner=$(who am i | awk '{print $1}')
 apacheUser="mantas"
 # apacheUser=$(ps -ef | egrep '(httpd|apache2|apache)' | grep -v root | head -n1 | awk '{print $1}')
 email='webmaster@localhost'
-sitesEnabled='/etc/httpd/sites-enabled/'
-sitesAvailable='/etc/httpd/sites-available/'
+if ( isdebian ) 
+	sitesAvailable='/etc/apache2/sites-available/'
+	sitesEnabled='/etc/apache2/sites-enabled/'
+else
+	sitesEnabled='/etc/httpd/sites-available/'
+	sitesEnabled='/etc/httpd/sites-enabled/'
+fi
 userDir='/var/www/'
 sitesAvailabledomain=$sitesAvailable$domain.conf
 
@@ -122,8 +127,7 @@ if [ "$action" == 'create' ]
 		a2ensite $domain'.conf'
 
 		### restart Apache
-		# /etc/init.d/apache2 restart
-		sudo systemctl restart httpd.service
+		a2res
 
 		### show the finished message
 		echo -e $"Complete! \nYou now have a new Virtual Host \nYour new host is: http://$domain \nAnd its located at $rootDir"
@@ -149,8 +153,7 @@ if [ "$action" == 'create' ]
 			a2dissite $domain'.conf'
 
 			### restart Apache
-			# /etc/init.d/apache2 restart
-			sudo systemctl restart httpd.service
+			a2res
 
 			### Delete virtual host rules files
 			rm $sitesAvailabledomain

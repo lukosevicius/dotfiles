@@ -40,3 +40,6 @@ done
 
 
 alias test='echo "test"'
+
+export VISUAL=vim
+export EDITOR="$VISUAL"

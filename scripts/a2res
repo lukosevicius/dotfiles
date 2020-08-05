@@ -4,5 +4,12 @@ if [ $# == 1 ]; then
    sudo a2dissite $1 >> /dev/null && echo "site disabled"
    sudo a2ensite $1 >> /dev/null && echo "site enabled"
 fi
-sudo systemctl restart httpd.service &&
+
+if ( isdebian ) 
+then
+   sudo service apache2 restart
+else
+   sudo systemctl restart httpd.service 
+fi
+
 echo "apache restarted"
