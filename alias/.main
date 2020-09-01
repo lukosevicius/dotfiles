@@ -46,3 +46,6 @@ alias getlamp="wget --no-cache -O - https://gist.github.com/EmpireWorld/737fbb9f
 alias getgravdeps="sudo apt-get install php7.4-mbstring php7.4-curl php7.4-zip php7.4-dom php7.4-gd"
 # sudo apt composer install
 # sudo a2enmod rewrite
+
+# install
+alias getaxios="npm install --save axios@0.18.1"

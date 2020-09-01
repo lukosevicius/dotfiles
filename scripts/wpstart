@@ -62,9 +62,8 @@ function start {
 }
 
 function create_db {
-    sudo mysql -e "DROP DATABASE IF EXISTS "$dbname
-    sudo mysql -e "CREATE DATABASE "$dbname
-
+    sudo mysql -e "DROP DATABASE IF EXISTS "$dbname &&
+    sudo mysql -e "CREATE DATABASE "$dbname && 
     echo "Created database \""$dbname"\""
 }
 
