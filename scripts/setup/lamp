@@ -1,0 +1,8 @@
+#!/bin/bash
+
+sudo apt install -y php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip &&
+echo "php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip installed"
+
+sudo a2enmod rewrite
+
+a2res

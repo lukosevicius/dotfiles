@@ -32,6 +32,11 @@ if [ -d "$HOME/dotfiles/scripts" ] ; then
   PATH="$HOME/dotfiles/scripts:$PATH"
 fi
 
+# dotfiles automation scripts
+if [ -d "$HOME/dotfiles/scripts/setup" ] ; then
+  PATH="$HOME/dotfiles/scripts/setup:$PATH"
+fi
+
 # # dotfiles automation scripts
 # if [ -d "$HOME/dotfiles/bin" ] ; then
 #   PATH="$HOME/dotfiles/bin:$PATH"
