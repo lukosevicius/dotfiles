@@ -23,10 +23,10 @@ function ch() {
   if [[ "$2" == "scripts" ]]
   then
       sudo chmod -R $1 ~/dotfiles/scripts &&
-      echo -e "all scripts permissions here changed to \e[32m"$1"\e[0m" &&
+      echo -e "all scripts permissions here changed to \e[32m"$1"\e[0m"
   else
       sudo chmod -R $1 $2 && 
-      echo -e "all $2 permissions here changed to \e[32m"$1"\e[0m" &&
+      echo -e "all $2 permissions here changed to \e[32m"$1"\e[0m"
   fi
 }
 
@@ -61,8 +61,7 @@ function backup() {
       name="backup-$dir_name-$(date +"%Y-%m-%d_%H-%M").zip"
       zip -r $name * > /dev/null &&
       echo "zipped all files to "$name
-  elif
-  then
+  else
       name="backup-$1-$(date +"%Y-%m-%d_%H-%M").zip"
       zip -r $name $1 > /dev/null &&
       echo "zipped $1 files to "$name

@@ -1,0 +1,39 @@
+#!/bin/bash
+
+echo "starting setup"
+
+log_file=~/install_progress_log.txt
+
+function install-apt {
+        sudo apt install $1
+        if type -p $1 > /dev/null; then
+                echo "$1 Installed" >> $log_file
+        else
+                echo "$1 FAILED TO INSTALL!!!" >> $log_file
+        fi
+}
+
+function install-snap {
+        sudo snap install --classic $1
+        if type -p $1 > /dev/null; then
+                echo "$1 Installed" >> $log_file
+        else
+                echo "$1 FAILED TO INSTALL!!!" >> $log_file
+        fi
+}
+
+
+install-apt vim
+install-apt git
+install-apt gnome-tweaks
+install-apt filezilla
+
+install-snap code
+
+#==============
+# Give the user a summary of what has been installed
+#==============
+echo -e "\n====== Summary ======\n"
+cat $log_file
+echo
+rm $log_file

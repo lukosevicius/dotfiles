@@ -1,0 +1,5 @@
+#!/bin/bash
+
+ln -svf ~/dotfiles/.bash_profile ~/.bash_profile
+
+source ~/.bash_profile

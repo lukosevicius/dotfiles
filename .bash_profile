@@ -12,30 +12,30 @@
 # fi
 
 # set PATH so it includes user's private bin if it exists
-if [ -d "$HOME/bin" ] ; then
-    PATH="$HOME/bin:$PATH"
-fi
+# if [ -d "$HOME/bin" ] ; then
+#     PATH="$HOME/bin:$PATH"
+# fi
 
-# set PATH so it includes user's private bin if it euser=surio1xists
-if [ -d "$HOME/.local/bin" ] ; then
-    PATH="$HOME/.local/bin:$PATH"
-fi
+# # set PATH so it includes user's private bin if it euser=surio1xists
+# if [ -d "$HOME/.local/bin" ] ; then
+#     PATH="$HOME/.local/bin:$PATH"
+# fi
 
-# dotfiles automation scripts
-if [ -d "$HOME/dotfiles/" ] ; then
-  PATH="$HOME/dotfiles/:$PATH"
-fi
+# # dotfiles automation scripts
+# if [ -d "$HOME/dotfiles/" ] ; then
+#   PATH="$HOME/dotfiles/:$PATH"
+# fi
 
-
-# dotfiles automation scripts
-if [ -d "$HOME/dotfiles/install" ] ; then
-  PATH="$HOME/dotfiles/install:$PATH"
-fi
 
 # dotfiles automation scripts
-if [ -d "$HOME/dotfiles/bin" ] ; then
-  PATH="$HOME/dotfiles/bin:$PATH"
+if [ -d "$HOME/dotfiles/scripts" ] ; then
+  PATH="$HOME/dotfiles/scripts:$PATH"
 fi
+
+# # dotfiles automation scripts
+# if [ -d "$HOME/dotfiles/bin" ] ; then
+#   PATH="$HOME/dotfiles/bin:$PATH"
+# fi
 
 
 # Python
@@ -50,7 +50,7 @@ if [ -d "$HOME/py" ] ; then
 fi
 
 # source all dotfiles (alias, functinos)
-for DOTFILE in `find ~/dotfiles/system`
+for DOTFILE in `find ~/dotfiles/alias`
 do
   [ -f $DOTFILE ] && source $DOTFILE
 done

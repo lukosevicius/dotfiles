@@ -1,0 +1,77 @@
+#!/bin/bash
+
+function start {
+    echo -e "*** Starting procedure of getting those sweet dotfiles.. ***"
+    install-git
+    create-ssh-key
+    add-key-to-github
+    download-dotfiles
+}
+
+function install-git {
+    echo -e "\n====== Installing git ======\n"
+
+    sudo apt install git
+    if type -p git > /dev/null; then
+        ok "git Installed"
+
+    else
+        fail "git FAILED TO INSTALL!!!"
+    fi
+}
+
+function download-dotfiles {
+    echo -e "\n====== downloading dotfiles ======\n"
+
+    if [ -d "$HOME/dotfiles" ]; then
+        fail "dotfiles dir in $HOME/dotfiles already exists"
+    else
+        echo $USER
+        git clone git@github.com:lukosevicius/dotfiles.git &&
+        ok "dotfiles downloaded"
+    fi
+}
+
+function create-ssh-key {
+    echo -e "\n====== Creating SSH key ======\n"
+    if [ -z "$(ls -A $HOME/.ssh)" ]; then
+        # created ssh key without any prompts
+        ssh-keygen -t rsa -b 4096 -C "man.lukosevicius@gmail.com" -f ~/.ssh/id_rsa <<< y &&
+        eval "$(ssh-agent -s)" &&
+        ssh-add ~/.ssh/id_rsa &&
+        echo "\n" &&
+        cat $HOME/.ssh/id_rsa.pub &&
+        ok "ssh key created"
+    else
+        ok "ssh already created:"
+        cat $HOME/.ssh/id_rsa.pub
+    fi
+}
+
+function add-key-to-github {
+    echo -e "\nPut that key here: \n"
+    echo -e "https://github.com/settings/ssh/new\n"
+
+    read -r -p "Done? [Y/n] " response
+    case "$response" in
+        [nN]) 
+            echo "exiting"
+            exit
+            ;;
+        *)
+            ok "good boy"
+            ;;
+    esac
+
+}
+
+
+function fail {   
+    echo -e "\n\e[31m$1\e[0m\n" 
+}
+
+function ok {
+    echo -e "\n\e[32m$1\e[0m\n"
+}
+
+start $@

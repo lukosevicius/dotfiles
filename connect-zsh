@@ -1,1 +1,5 @@
+#!/bin/bash
+
 ln -svf ~/dotfiles/.zshrc ~/.zshrc
+
+source ~/.zshrc
