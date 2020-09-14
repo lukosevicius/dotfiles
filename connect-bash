@@ -1,5 +1,6 @@
 #!/bin/bash
 
-ln -svf ~/dotfiles/.bash_profile ~/.bash_profile
+ln -svf ~/dotfiles/.bashrc ~/.bashrc
 
-source ~/.bash_profile
+echo "Type:"
+echo "source ~/.bashrc"

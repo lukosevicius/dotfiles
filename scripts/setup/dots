@@ -12,7 +12,20 @@ function install-git {
     echo -e "\n====== Installing git ======\n"
 
     sudo apt install git
+    
+    gitEmail="man.lukosevicius@gmail.com"
+    gitName="lukosevicius"
+    
+
+
     if type -p git > /dev/null; then
+    	 echo -e "\nSetting some git configs:"
+    	
+    	 git config --global user.email $gitEmail &&
+        echo "Git: global user email set to $gitEmail"
+        git config --global user.name $gitName &&
+        echo "Git: global user email set to $gitName"
+        
         ok "git Installed"
 
     else
@@ -27,7 +40,7 @@ function download-dotfiles {
         fail "dotfiles dir in $HOME/dotfiles already exists"
     else
         echo $USER
-        git clone git@github.com:lukosevicius/dotfiles.git &&
+        git clone git@github.com:lukosevicius/dotfiles.git $HOME &&
         ok "dotfiles downloaded"
     fi
 }
