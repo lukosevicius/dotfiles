@@ -6,6 +6,12 @@ TEXTDOMAIN=virtualhost
 action=$1
 domain=$2
 rootDir=$3
+
+if [ "$3" == "" ]; then
+	domain=$domain".local"
+	rootDir=$domain
+fi
+
 owner=$(who am i | awk '{print $1}')
 apacheUser="mantas"
 # apacheUser=$(ps -ef | egrep '(httpd|apache2|apache)' | grep -v root | head -n1 | awk '{print $1}')
