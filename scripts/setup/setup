@@ -35,20 +35,27 @@ function install-brave {
 }
 
 # packages
-install-apt apt-transport-https
-install-apt curl
 
 # programs
+install-apt curl
 install-apt vim
 install-apt git
 install-apt gnome-tweaks
 install-apt filezilla
+install-apt calibre
+
 install-apt nodejs
 install-apt npm
 
+# needs special treatment
 install-brave
 
+# snap packages
+# echo "== Installed snap packages =="
 install-snap code
+
+# gnome extensions
+# echo "== Gnome extensions =="
 
 
 #==============

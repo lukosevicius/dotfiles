@@ -1,7 +1,32 @@
 #!/bin/bash
 
-sudo apt install -y php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip &&
-echo "php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip installed"
+# Update Package Index
+sudo apt update
+
+# Install Apache2, MySQL, PHP
+sudo apt install -y apache2 mysql-server php php-mysql libapache2-mod-php php-cli
+
+# Allow to run Apache on boot up
+sudo systemctl enable apache2
+
+# Restart Apache Web Server
+sudo systemctl start apache2
+
+# Adjust Firewall
+sudo ufw allow in "Apache Full"
+
+# Allow Read/Write for Owner
+sudo chmod -R 0755 /var/www/html/
+
+# Create info.php for testing php processing
+sudo echo "<?php phpinfo(); ?>" > /var/www/html/info.php
+
+# Open localhost in the default browser
+# xdg-open "http://localhost"
+# xdg-open "http://localhost/info.php"
+
+# install some php extensions
+sudo apt install -y php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip php7.4-gettext phpmyadmin
 
 sudo a2enmod rewrite
 
