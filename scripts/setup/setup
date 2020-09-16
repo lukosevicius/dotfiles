@@ -34,18 +34,18 @@ function install-brave {
         install-apt brave-browser
 }
 
-# packages
-
-# programs
+# command line programs
 install-apt curl
 install-apt vim
 install-apt git
+install-apt nodejs
+install-apt npm
+
+# graphical programs
 install-apt gnome-tweaks
 install-apt filezilla
 install-apt calibre
-
-install-apt nodejs
-install-apt npm
+install-apt gimp
 
 # needs special treatment
 install-brave

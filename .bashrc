@@ -27,7 +27,10 @@
 # fi
 
 
-# dotfiles automation scripts
+if [ -d "$HOME/dotfiles" ] ; then
+  PATH="$HOME/dotfiles:$PATH"
+fi
+
 if [ -d "$HOME/dotfiles/scripts" ] ; then
   PATH="$HOME/dotfiles/scripts:$PATH"
 fi
@@ -135,3 +138,7 @@ xterm*|rxvt*)
 *)
     ;;
 esac
+
+if [ -f ~/.dircolors ]; then
+  eval "dircolors ~/.dircolors" > /dev/null
+fi

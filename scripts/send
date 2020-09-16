@@ -3,9 +3,8 @@
 HOME_IP="ip-here"
 HOME_FOLDER="/home/mantas/incoming"
 ALL_COMMANDS=("home" "honey" "quit")
-HONEY_IP="root@ip-here"
+HONEY_IP="root@167.71.52.131"
 HONEY_FOLDER="/var/www/incoming"
-
 
 function start {
     #   Ask to enter command if not passed with arguments

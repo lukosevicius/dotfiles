@@ -40,7 +40,7 @@ function download-dotfiles {
         fail "dotfiles dir in $HOME/dotfiles already exists"
     else
         echo $USER
-        git clone git@github.com:lukosevicius/dotfiles.git $HOME &&
+        git clone git@github.com:lukosevicius/dotfiles.git $HOME/dotfiles &&
         ok "dotfiles downloaded"
     fi
 }
