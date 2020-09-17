@@ -5,3 +5,4 @@ alias/.tmp
 #config
 config/*
 !config/*_example
+!config/.dircolors
