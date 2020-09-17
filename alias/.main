@@ -9,7 +9,7 @@ alias c="clear"
 alias q="exit"
 alias s='sudo'
 alias hosts='sudo vi /etc/hosts'
-alias rm="sudo rm -rf "
+# alias rm="sudo rm -rfiv "
 
 # programs
 alias v='sudo vim'

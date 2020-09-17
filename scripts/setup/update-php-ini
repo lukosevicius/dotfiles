@@ -2,7 +2,7 @@
 
 upload_max_filesize=240M
 post_max_size=50M
-max_execution_time=100
+max_execution_time=0
 max_input_time=223
 
 if ( isdebian )
@@ -20,7 +20,7 @@ done
 echo "New values:"
 echo "- upload_max_filesize=$upload_max_filesize
 - post_max_size=$post_max_size
-- max_execution_time=$max_execution_time
+- max_execution_time=$max_execution_time --unlimited
 - max_input_time=$max_input_time"
 
 # restart apache

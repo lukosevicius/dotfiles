@@ -36,6 +36,7 @@ function install-brave {
 
 # command line programs
 install-apt curl
+install-apt unzip
 install-apt vim
 install-apt git
 install-apt nodejs

@@ -1,0 +1,11 @@
+#!/bin/bash
+
+if grep -q "WORK_ENV='home-env'" ~/.bashrc; then
+    sed -i "s/WORK_ENV='home-env'/WORK_ENV='not-home-env'/g" ~/.bashrc
+    echo -e "set to \e[35m""no-home-env""\e[0m"
+else
+    sed -i "s/WORK_ENV='not-home-env'/WORK_ENV='home-env'/g" ~/.bashrc
+    echo -e "set to \e[32m""home-env""\e[0m"
+fi
+  
+echo "To enable write sc" 

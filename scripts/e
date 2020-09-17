@@ -24,6 +24,7 @@ fi
 case $1 in
   "main") file_path=~/dotfiles/alias/.main ;;
   "nav") file_path=~/dotfiles/alias/.navigation ;;
+  "tmp") file_path=~/dotfiles/alias/.tmp ;;
   "navigation") file_path=~/dotfiles/alias/.navigation ;;
   "functions") file_path=~/dotfiles/alias/.functions ;;
   "zsh") file_path=~/dotfiles/.zshrc ;;

@@ -1,5 +1,6 @@
 # alias
 alias/.ssh
+alias/.tmp
 
 #config
 config/*
