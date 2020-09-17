@@ -123,7 +123,7 @@ case "$TERM" in
     xterm-color|*-256color) color_prompt=yes;;
 esac
 
-WORK_ENV="home-env"
+WORK_ENV='home-env'
 
 if [ "$color_prompt" = yes ]; then
   if [ "$WORK_ENV" = "home-env" ]; then
