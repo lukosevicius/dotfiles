@@ -40,8 +40,11 @@ function download-dotfiles {
         fail "dotfiles dir in $HOME/dotfiles already exists"
     else
         echo $USER
-        git clone git@github.com:lukosevicius/dotfiles.git $HOME/dotfiles &&
-        ok "dotfiles downloaded"
+        git clone git@github.com:lukosevicius/dotfiles.git $HOME/dotfiles
+        echo -e "\n====== Dotfiles downloaded ======\n"
+        echo "To connect dotfiles:"
+        echo "cd dotfiles"
+        echo "./bash-connect"
     fi
 }
 
