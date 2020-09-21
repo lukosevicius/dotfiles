@@ -26,9 +26,6 @@
 #   PATH="$HOME/dotfiles/:$PATH"
 # fi
 
-echo "BASH"
-
-
 if [ -d "$HOME/dotfiles" ] ; then
   PATH="$HOME/dotfiles:$PATH"
 fi
