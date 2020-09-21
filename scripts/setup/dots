@@ -11,13 +11,18 @@ function start {
 function install-git {
     echo -e "\n====== Installing git ======\n"
 
-    sudo apt install git
+     if [[ ! -z $(which dnf) ]]; then
+        sudo dnf install -y git
+    elif [[ ! -z $(which apt) ]]; then
+        sudo apt install -y git
+    else
+        echo "error can't install git package"
+        exit 1;
+    fi
     
     gitEmail="man.lukosevicius@gmail.com"
     gitName="lukosevicius"
     
-
-
     if type -p git > /dev/null; then
     	 echo -e "\nSetting some git configs:"
     	
