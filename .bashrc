@@ -26,6 +26,8 @@
 #   PATH="$HOME/dotfiles/:$PATH"
 # fi
 
+echo "BASH"
+
 
 if [ -d "$HOME/dotfiles" ] ; then
   PATH="$HOME/dotfiles:$PATH"
@@ -35,7 +37,10 @@ if [ -d "$HOME/dotfiles/scripts" ] ; then
   PATH="$HOME/dotfiles/scripts:$PATH"
 fi
 
-# dotfiles automation scripts
+if [ -d "$HOME/dotfiles/scripts/helpers" ] ; then
+  PATH="$HOME/dotfiles/scripts/helpers:$PATH"
+fi
+
 if [ -d "$HOME/dotfiles/scripts/setup" ] ; then
   PATH="$HOME/dotfiles/scripts/setup:$PATH"
 fi

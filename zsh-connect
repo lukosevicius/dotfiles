@@ -1,5 +1,23 @@
 #!/bin/bash
+echo -e "\n====== Installing zsh ======\n"
+
+if ( isredhat ); then
+    sudo dnf install -y zsh wget &&
+    chsh -s /bin/zsh root &&
+    echo $SHELL &&
+else
+    sudo apt install -y zsh util-linux-user wget &&
+    chsh -s /usr/bin/zsh root &&
+    echo $SHELL &&
+fi
+
+if [ -z "$(ls -A $HOME/.oh-my-zsh)" ]; then
+    echo "getting oh-my-zsh"
+    wget https://github.com/robbyrussell/oh-my-zsh/raw/master/tools/install.sh -O - | zsh
+fi
+
 
 ln -svf ~/dotfiles/.zshrc ~/.zshrc
 
-source ~/.zshrc
+echo "WRITE: "
+echo "source ~/.zshrc"

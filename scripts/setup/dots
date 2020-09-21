@@ -11,7 +11,7 @@ function start {
 function install-git {
     echo -e "\n====== Installing git ======\n"
 
-     if [[ ! -z $(which dnf) ]]; then
+    if [[ ! -z $(which dnf) ]]; then
         sudo dnf install -y git
     elif [[ ! -z $(which apt) ]]; then
         sudo apt install -y git

@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if ( grep -E 'NAME=Fedora' /etc/os-release >> /dev/null )
+then
+    exit 0
+else
+    exit 1
+fi

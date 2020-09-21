@@ -5,6 +5,9 @@
 # Path to your oh-my-zsh installation.
 export ZSH=$HOME/.oh-my-zsh
 
+echo "ZSH"
+
+
 # Theme
 ZSH_THEME="agnoster"
 
@@ -25,11 +28,20 @@ function addToPATH {
 }
 
 # add dotfile's scripts to PATH
+if [ -d "$HOME/dotfiles" ] ; then
+    addToPATH $HOME/dot
+fi
+
 if [ -d "$HOME/dotfiles/scripts" ] ; then
     addToPATH $HOME/dotfiles/scripts
 fi
-if [ -d "$HOME/dotfiles/scripts/configure" ] ; then
-    addToPATH $HOME/dotfiles/scripts/configure
+
+if [ -d "$HOME/dotfiles/scripts/setup" ] ; then
+    addToPATH $HOME/dotfiles/scripts/setup
+fi
+
+if [ -d "$HOME/dotfiles/scripts/helpers" ] ; then
+    addToPATH $HOME/dotfiles/scripts/helpers
 fi
 
 # source all dotfiles (alias, functinos)
@@ -37,9 +49,6 @@ for DOTFILE in `find ~/dotfiles/alias`
 do
   [ -f $DOTFILE ] && source $DOTFILE
 done
-
-
-alias test='echo "test"'
 
 export VISUAL=vim
 export EDITOR="$VISUAL"
