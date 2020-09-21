@@ -5,11 +5,11 @@ if [ $# == 1 ]; then
    sudo a2ensite $1 >> /dev/null && echo "site enabled"
 fi
 
-if ( isdebian ) 
+if ( isredhat ) 
 then
-   sudo service apache2 restart
-else
    sudo systemctl restart httpd.service 
+else
+   sudo service apache2 restart
 fi
 
 echo "apache restarted"

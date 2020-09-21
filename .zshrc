@@ -37,6 +37,10 @@ if [ -d "$HOME/dotfiles/scripts/setup" ] ; then
     addToPATH $HOME/dotfiles/scripts/setup
 fi
 
+if [ -d "$HOME/dotfiles/scripts/server" ] ; then
+    addToPATH $HOME/dotfiles/scripts/server
+fi
+
 if [ -d "$HOME/dotfiles/scripts/helpers" ] ; then
     addToPATH $HOME/dotfiles/scripts/helpers
 fi

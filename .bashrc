@@ -42,6 +42,10 @@ if [ -d "$HOME/dotfiles/scripts/setup" ] ; then
   PATH="$HOME/dotfiles/scripts/setup:$PATH"
 fi
 
+if [ -d "$HOME/dotfiles/scripts/server" ] ; then
+  PATH="$HOME/dotfiles/scripts/server:$PATH"
+fi
+
 # # dotfiles automation scripts
 # if [ -d "$HOME/dotfiles/bin" ] ; then
 #   PATH="$HOME/dotfiles/bin:$PATH"

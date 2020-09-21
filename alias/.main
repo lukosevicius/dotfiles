@@ -1,10 +1,5 @@
 #!/bin/bash 
 
-# alias sbrc='source ~/.bashrc'
-alias sc='source ~/.bashrc'
-# alias sc='source ~/.zshrc'
-alias szsh='source ~/.zshrc'
-
 alias c="clear"
 alias q="exit"
 alias s='sudo'

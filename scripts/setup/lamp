@@ -1,33 +1,55 @@
 #!/bin/bash
 
-# Update Package Index
-sudo apt update
+if ( isredhat ); then
 
-# Install Apache2, MySQL, PHP
-sudo apt install -y apache2 mysql-server php php-mysql libapache2-mod-php php-cli
+    # Apache
+    sudo dnf install httpd
+    sudo systemctl start httpd
 
-# Allow to run Apache on boot up
-sudo systemctl enable apache2
+    # Maria DB
+    sudo dnf install mariadb-server
+    sudo systemctl start mariadb
+    # sudo mysql_secure_installation
 
-# Restart Apache Web Server
-sudo systemctl start apache2
+    # PHP
+    sudo dnf install -y php php-mysqlnd php-mbstring php-curl php-dom php-gd php-xml php-zip php-gettext
 
-# Adjust Firewall
-sudo ufw allow in "Apache Full"
+    echo "Optionaly run:"
+    echo "mysql_secure_installation"
 
-# Allow Read/Write for Owner
-sudo chmod -R 0755 /var/www/html/
+else
+    # Update Package Index
+    sudo apt update
 
-# Create info.php for testing php processing
-sudo echo "<?php phpinfo(); ?>" > /var/www/html/info.php
+    # Install Apache2, MySQL, PHP
+    sudo apt install -y apache2 mysql-server php php-mysql libapache2-mod-php php-cli
 
-# Open localhost in the default browser
-# xdg-open "http://localhost"
-# xdg-open "http://localhost/info.php"
+    # Allow to run Apache on boot up
+    sudo systemctl enable apache2
 
-# install some php extensions
-sudo apt install -y php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip php7.4-gettext phpmyadmin
+    # Restart Apache Web Server
+    sudo systemctl start apache2
 
-sudo a2enmod rewrite
+    # Adjust Firewall
+    sudo ufw allow in "Apache Full"
 
-a2res
+    # Allow Read/Write for Owner
+    sudo chmod -R 0755 /var/www/html/
+
+    # Create info.php for testing php processing
+    sudo echo "<?php phpinfo(); ?>" > /var/www/html/info.php
+
+    # Open localhost in the default browser
+    # xdg-open "http://localhost"
+    # xdg-open "http://localhost/info.php"
+
+    # install some php extensions
+    sudo apt install -y php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip php7.4-gettext phpmyadmin
+
+    sudo a2enmod rewrite
+
+    a2res
+fi
+
+
+
