@@ -63,6 +63,7 @@ install-package git
 install-package nodejs
 install-package npm
 install-package lolcat
+install-package neofetch
 
 # graphical programs
 install-package gnome-tweaks

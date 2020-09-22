@@ -6,6 +6,9 @@ if ( isredhat ); then
     sudo dnf install httpd
     sudo systemctl start httpd
 
+    # Set a universal Apache policy:
+    sudo setsebool -P httpd_unified 1
+
     # Maria DB
     sudo dnf install mariadb-server
     sudo systemctl start mariadb

@@ -28,10 +28,16 @@ alias dots="cd ~/dotfiles"
 alias dotfiles="cd ~/dotfiles"
 alias scripts="cd ~/dotfiles/scripts"
 alias py='cd ~/py'
-alias apache="cd /etc/apache2"
-alias sites='cd /etc/apache2/sites-available/'
-alias enabled='cd /etc/apache2/sites-enabled/'
 alias themes='cd /usr/share/themes'
 alias icons='cd /usr/share/icons'
 alias fonts='cd /usr/share/fonts'
 
+if ( isredhat ); then
+    alias apache="cd /etc/httpd"
+    alias sites='cd /etc/httpd/sites-available/'
+    alias enabled='cd /etc/httpd/sites-enabled/'
+else
+    alias apache="cd /etc/apache2"
+    alias sites='cd /etc/apache2/sites-available/'
+    alias enabled='cd /etc/apache2/sites-enabled/'
+fi
