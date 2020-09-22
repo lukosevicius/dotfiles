@@ -27,6 +27,7 @@ alias plugins="cd ~/wordpress/plugins"
 alias dots="cd ~/dotfiles"
 alias dotfiles="cd ~/dotfiles"
 alias scripts="cd ~/dotfiles/scripts"
+alias configs="cd ~/dotfiles/configs"
 alias py='cd ~/py'
 alias themes='cd /usr/share/themes'
 alias icons='cd /usr/share/icons'

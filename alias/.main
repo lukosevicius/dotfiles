@@ -45,3 +45,8 @@ alias getgravdeps="sudo apt-get install php7.4-mbstring php7.4-curl php7.4-zip p
 
 # install
 alias getaxios="npm install --save axios@0.18.1"
+
+# git
+# alias ga="git add ."
+# alias gc="git commit"
+# alias gp="git push"
