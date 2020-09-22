@@ -55,7 +55,7 @@ function download-dotfiles {
 
 function create-ssh-key {
     echo -e "\n====== Creating SSH key ======\n"
-    if [ -z "$(ls -A $HOME/.ssh)" ]; then
+    if [ -f "$(ls -A $HOME/.ssh/id_rsa.pub)" ]; then
         # created ssh key without any prompts
         ssh-keygen -t rsa -b 4096 -C "man.lukosevicius@gmail.com" -f ~/.ssh/id_rsa <<< y &&
         eval "$(ssh-agent -s)" &&
