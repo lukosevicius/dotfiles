@@ -21,18 +21,26 @@ alias docs="cd ~/Documents"
 alias downs="cd ~/Downloads"
 alias desktop="cd ~/Desktop"
 alias pics="cd ~/Pictures"
-alias word="cd ~/wordpress"
 alias react="cd ~/react"
+alias py='cd ~/py'
+
+# wordpress
+alias word="cd ~/wordpress"
 alias plugins="cd ~/wordpress/plugins"
+
+# dotfiles
 alias dots="cd ~/dotfiles"
 alias dotfiles="cd ~/dotfiles"
 alias scripts="cd ~/dotfiles/scripts"
-alias configs="cd ~/dotfiles/configs"
-alias py='cd ~/py'
+alias config="cd ~/dotfiles/config"
+alias configs="cd ~/dotfiles/config"
+
+# Gnome
 alias themes='cd /usr/share/themes'
 alias icons='cd /usr/share/icons'
 alias fonts='cd /usr/share/fonts'
 
+# Apache
 if ( isredhat ); then
     alias apache="cd /etc/httpd"
     alias sites='cd /etc/httpd/sites-available/'
