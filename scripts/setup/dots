@@ -8,6 +8,21 @@ function start {
     download-dotfiles
 }
 
+function check-user {
+    if [ $USER == "root" ]; then
+        echo "You are logged in as root, will create new user - mantas"
+        if [ -d /home/mantas ]; then
+            echo "But mantas already exists..."
+            exit 0
+        else
+            adduser mantas &&
+            usermod -aG sudo mantas &&
+            rsync --archive --chown=mantas:mantas ~/.ssh /home/mantas &&
+            su - mantas
+        fi
+    fi
+}
+
 function install-git {
     echo -e "\n====== Installing git ======\n"
 
