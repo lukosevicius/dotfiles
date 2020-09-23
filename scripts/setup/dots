@@ -18,7 +18,8 @@ function check-user {
             adduser mantas &&
             usermod -aG sudo mantas &&
             rsync --archive --chown=mantas:mantas ~/.ssh /home/mantas &&
-            su - mantas
+            su - mantas &&
+            echo "new user - mantas, has been created"
         fi
     fi
 }
