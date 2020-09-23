@@ -6,6 +6,8 @@ alias s='sudo'
 alias hosts='sudo vi /etc/hosts'
 # alias rm="sudo rm -rfiv "
 
+alias myip="curl -4 icanhazip.com"
+
 # programs
 alias v='sudo vim'
 alias vi="echo 'use v'"
