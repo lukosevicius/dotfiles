@@ -22,6 +22,8 @@ function check-user {
             su - mantas &&
             echo "new user - mantas, has been created"
         fi
+    else
+        echo "current user is $USER"
     fi
 }
 
