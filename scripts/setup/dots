@@ -2,6 +2,7 @@
 
 function start {
     echo -e "*** Starting procedure of getting those sweet dotfiles.. ***"
+    check-user
     install-git
     create-ssh-key
     add-key-to-github
