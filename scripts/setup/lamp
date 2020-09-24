@@ -47,7 +47,8 @@ else
     # xdg-open "http://localhost/info.php"
 
     # install some php extensions
-    sudo apt install -y php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip php7.4-gettext phpmyadmin
+    sudo apt install -y php7.4-mbstring php7.4-curl php7.4-dom php7.4-gd php7.4-xml php7.4-zip php7.4-gettext
+    # sudo apt install phpmyadmin
 
     sudo a2enmod rewrite
 
