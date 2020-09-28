@@ -2,7 +2,7 @@
 
 function start {
     echo -e "*** Starting procedure of getting those sweet dotfiles.. ***"
-    # check-user
+    check-user
     install-git
     create-ssh-key
     add-key-to-github
@@ -18,7 +18,7 @@ function check-user {
             echo "But mantas already exists..."
             exit 0
         else
-            adduser mantas &&
+            adduser --gecos GECOS mantas &&
             usermod -aG sudo mantas &&
             rsync --archive --chown=mantas:mantas ~/.ssh /home/mantas &&
             su - mantas &&
