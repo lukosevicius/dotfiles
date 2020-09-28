@@ -1,0 +1,30 @@
+#!/bin/bash
+
+echo -e "\n====== Creating New User ======\n"
+
+NEW_USER="mantas"
+
+if [ -n "$1" ]; then
+    NEW_USER=$1
+fi
+
+read -r -p "Create user - $NEW_USER? [Y/n] " response
+case "$response" in
+    [nN]) 
+        exit
+        ;;
+    *)
+        echo "ok"
+        ;;
+esac
+
+if [ -d /home/$NEW_USER ]; then
+    echo "But $NEW_USER already exists..."
+    exit 0
+else
+    adduser --gecos GECOS $NEW_USER &&
+    usermod -aG sudo $NEW_USER &&
+    rsync --archive --chown=$NEW_USER:$NEW_USER ~/.ssh /home/$NEW_USER &&
+    su - $NEW_USER &&
+    echo "new user - $NEW_USER, has been created"
+fi

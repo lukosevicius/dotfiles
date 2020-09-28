@@ -2,7 +2,6 @@
 
 function start {
     echo -e "*** Starting procedure of getting those sweet dotfiles.. ***"
-    check-user
     install-git
     create-ssh-key
     add-key-to-github
@@ -13,19 +12,8 @@ function check-user {
     echo -e "\n====== Checking user ======\n"
 
     if [ $USER == "root" ]; then
-        echo "You are logged in as root, will create new user - mantas"
-        if [ -d /home/mantas ]; then
-            echo "But mantas already exists..."
-            exit 0
-        else
-            adduser --gecos GECOS mantas &&
-            usermod -aG sudo mantas &&
-            rsync --archive --chown=mantas:mantas ~/.ssh /home/mantas &&
-            su - mantas &&
-            echo "new user - mantas, has been created"
-        fi
-    else
-        echo "current user is $USER"
+        echo "You are logged in as root, should use non-root user" 
+        exit 1
     fi
 }
 
