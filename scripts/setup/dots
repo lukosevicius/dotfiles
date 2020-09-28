@@ -33,9 +33,9 @@ function install-git {
     gitName="lukosevicius"
     
     if type -p git > /dev/null; then
-    	 echo -e "\nSetting some git configs:"
-    	
-    	 git config --global user.email $gitEmail &&
+        echo -e "\nSetting some git configs:"
+    
+        git config --global user.email $gitEmail &&
         echo "Git: global user email set to $gitEmail"
         git config --global user.name $gitName &&
         echo "Git: global user email set to $gitName"
