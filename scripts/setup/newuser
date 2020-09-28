@@ -14,7 +14,7 @@ case "$response" in
         exit
         ;;
     *)
-        echo "ok"
+        echo "ok, will create $NEW_USER"
         ;;
 esac
 
