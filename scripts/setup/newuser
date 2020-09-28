@@ -8,15 +8,15 @@ if [ -n "$1" ]; then
     NEW_USER=$1
 fi
 
-read -r -p "Create user - $NEW_USER? [Y/n] " response
-case "$response" in
-    [nN]) 
-        exit
-        ;;
-    *)
-        echo "ok, will create $NEW_USER"
-        ;;
-esac
+# read -r -p "Create user - $NEW_USER? [Y/n] " response
+# case "$response" in
+#     [nN]) 
+#         exit
+#         ;;
+#     *)
+#         echo "ok, will create $NEW_USER"
+#         ;;
+# esac
 
 if [ -d /home/$NEW_USER ]; then
     echo "But $NEW_USER already exists..."
