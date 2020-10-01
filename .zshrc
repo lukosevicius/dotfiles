@@ -45,6 +45,10 @@ if [ -d "$HOME/dotfiles/scripts/helpers" ] ; then
     addToPATH $HOME/dotfiles/scripts/helpers
 fi
 
+if [ -d "$HOME/dotfiles/scripts/tmp" ] ; then
+    addToPATH $HOME/dotfiles/scripts/tmp
+fi
+
 # source all dotfiles (alias, functinos)
 for DOTFILE in `find ~/dotfiles/alias`
 do
