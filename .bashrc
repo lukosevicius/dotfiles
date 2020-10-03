@@ -46,6 +46,10 @@ if [ -d "$HOME/dotfiles/scripts/server" ] ; then
   PATH="$HOME/dotfiles/scripts/server:$PATH"
 fi
 
+if [ -d "$HOME/dotfiles/scripts/tmp" ] ; then
+  PATH="$HOME/dotfiles/scripts/tmp:$PATH"
+fi
+
 # # dotfiles automation scripts
 # if [ -d "$HOME/dotfiles/bin" ] ; then
 #   PATH="$HOME/dotfiles/bin:$PATH"

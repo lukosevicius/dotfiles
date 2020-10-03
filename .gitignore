@@ -4,6 +4,7 @@ notes/wordpress
 # alias
 alias/.ssh
 alias/.tmp
+scripts/tmp
 
 # scripts
 scripts/tmp/*
