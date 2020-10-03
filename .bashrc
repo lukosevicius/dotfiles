@@ -1,31 +1,3 @@
-# if running bash
-# if [ -n "$BASH_VERSION" ]; then
-#     # include .bashrc if it exists
-#     if [ -f "$HOME/.bashrc" ]; then
-#         . "$HOME/.bashrc"
-#     fi
-# fi
-
-# put this to .bashrc
-# if [ -f ~/dotfiles/.bash_profile ]; then
-#     . ~/dotfiles/.bash_profile
-# fi
-
-# set PATH so it includes user's private bin if it exists
-# if [ -d "$HOME/bin" ] ; then
-#     PATH="$HOME/bin:$PATH"
-# fi
-
-# # set PATH so it includes user's private bin if it euser=surio1xists
-# if [ -d "$HOME/.local/bin" ] ; then
-#     PATH="$HOME/.local/bin:$PATH"
-# fi
-
-# # dotfiles automation scripts
-# if [ -d "$HOME/dotfiles/" ] ; then
-#   PATH="$HOME/dotfiles/:$PATH"
-# fi
-
 if [ -d "$HOME/dotfiles" ] ; then
   PATH="$HOME/dotfiles:$PATH"
 fi
@@ -49,11 +21,6 @@ fi
 if [ -d "$HOME/dotfiles/scripts/tmp" ] ; then
   PATH="$HOME/dotfiles/scripts/tmp:$PATH"
 fi
-
-# # dotfiles automation scripts
-# if [ -d "$HOME/dotfiles/bin" ] ; then
-#   PATH="$HOME/dotfiles/bin:$PATH"
-# fi
 
 
 # Python
