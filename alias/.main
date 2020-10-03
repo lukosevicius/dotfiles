@@ -10,8 +10,8 @@ alias myip="curl -4 icanhazip.com"
 
 # programs
 alias v='sudo vim'
-alias vi="echo 'use v'"
-alias vim="echo 'use v'"
+alias vi='sudo vim'
+alias vim='sudo vim'
 
 alias mysql='sudo mysql'
 alias p='python3'

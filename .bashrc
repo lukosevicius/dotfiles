@@ -1,3 +1,4 @@
+# Add my scripts to the PATH
 if [ -d "$HOME/dotfiles" ] ; then
   PATH="$HOME/dotfiles:$PATH"
 fi
@@ -22,26 +23,25 @@ if [ -d "$HOME/dotfiles/scripts/tmp" ] ; then
   PATH="$HOME/dotfiles/scripts/tmp:$PATH"
 fi
 
+# Set VIM as my default editor
+export VISUAL=vim
+export EDITOR="$VISUAL"
 
-# Python
-if [ -d "$HOME/py" ] ; then
-  # main python dir
-  PATH="$HOME/py:$PATH"
-  # other python dirs
-  for py_dir in `find ~/dotfiles/system`
-  do
-    PATH="$HOME/$py_dir:$PATH"
-  done
-fi
-
-# source all dotfiles (alias, functinos)
+# Source all dotfiles (alias, functinos)
 for DOTFILE in `find ~/dotfiles/alias`
 do
   [ -f $DOTFILE ] && source $DOTFILE
 done
 
+# Get colors from this dir
+if [ -f ~/.dircolors ]; then
+  eval "dircolors ~/.dircolors" > /dev/null
+fi
 
-# From default Ubuntu .bashrc
+
+######
+######  From default Ubuntu .bashrc (colors and stuff)
+###### 
 
 # enable color support of ls and also add handy aliases
 if [ -x /usr/bin/dircolors ]; then
@@ -122,6 +122,3 @@ xterm*|rxvt*)
     ;;
 esac
 
-if [ -f ~/.dircolors ]; then
-  eval "dircolors ~/.dircolors" > /dev/null
-fi
