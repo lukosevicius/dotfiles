@@ -1,6 +1,13 @@
+# notes
+notes/wordpress
+
 # alias
 alias/.ssh
 alias/.tmp
+
+# scripts
+scripts/tmp/*
+!scripts/tmp/.gitkeep
 
 #config
 config/*
