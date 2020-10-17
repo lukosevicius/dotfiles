@@ -67,8 +67,8 @@ if [ "$action" == 'create' ]
 
 		### check if directory exists or not
 		if ! [ -d $rootDir ]; then
-			### create the directories, for html and logs
-			mkdir -p $rootDir/log
+			### create the directory
+			mkdir $rootDir
 			# From now on $rootDir in $rootDir
 			rootDir=$rootDir
 			### give permission to root dir
@@ -88,7 +88,7 @@ if [ "$action" == 'create' ]
 		<VirtualHost *:80>
 			# ServerAdmin $email
 			ServerName $domain
-			ServerAlias $domain
+			ServerAlias www.$domain
 			DocumentRoot $rootDir
 			<Directory />
 				AllowOverride All
@@ -98,9 +98,9 @@ if [ "$action" == 'create' ]
 				AllowOverride all
 				Require all granted
 			</Directory>
-			ErrorLog $rootDir/log/$domain-error.log
+			ErrorLog /var/log/apache2/$domain-error.log
 			LogLevel error
-			CustomLog $rootDir/log/$domain-access.log combined
+			CustomLog /var/log/apache2/$domain-access.log combined
 		</VirtualHost>" > $sitesAvailabledomain
 		then
 			echo -e $"There is an ERROR creating $domain file"
