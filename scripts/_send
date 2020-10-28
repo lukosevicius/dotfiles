@@ -51,7 +51,7 @@ function transfer {
 
     echo "$package will be sent to $ip:$folder"
     echo "Transfering..."
-    scp $package $ip':'$folder
+    scp -v $package $ip':'$folder
     
     if [ $? -eq 0 ]; then
         okMsg
