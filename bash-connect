@@ -1,7 +1,9 @@
 #!/bin/bash
 
 ln -svf ~/dotfiles/.bashrc ~/.bashrc
+
 ln -svf ~/dotfiles/config/.dircolors ~/.dircolors
+eval $(dircolors ~/.dircolors)
 
 echo "Type:"
 echo "source ~/.bashrc"
