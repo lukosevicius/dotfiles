@@ -19,5 +19,7 @@ fi
 
 ln -svf ~/dotfiles/.zshrc ~/.zshrc
 
+eval $(dircolors ~/.dircolors)
+
 echo "WRITE: "
 echo "source ~/.zshrc"
