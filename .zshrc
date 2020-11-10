@@ -59,6 +59,6 @@ export VISUAL=vim
 export EDITOR="$VISUAL"
 
 # Get colors from this dir
-if [ -f ~/.dircolors ]; then
+# if [ -f ~/.dircolors ]; then
   eval $(dircolors ~/.dircolors)
-fi
+# fi
