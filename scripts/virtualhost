@@ -133,7 +133,8 @@ if [ "$action" == 'create' ]
 		a2ensite $domain'.conf'
 
 		### restart Apache
-		a2res
+		# a2res
+		sudo service apache2 restart
 
 		### show the finished message
 		echo -e $"Complete! \nYou now have a new Virtual Host \nYour new host is: http://$domain \nAnd its located at $rootDir"
