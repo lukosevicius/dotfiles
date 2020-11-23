@@ -1,7 +1,3 @@
 #!/bin/bash 
 
-if ( isredhat ); then
-    sudo rm -f -v /etc/httpd/sites-enabled/$1
-else
-    sudo rm -f -v /etc/apache2/sites-enabled/$1
-fi
+sudo rm -f -v /etc/apache2/sites-enabled/$1
