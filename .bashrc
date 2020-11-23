@@ -121,4 +121,3 @@ xterm*|rxvt*)
 *)
     ;;
 esac
-
