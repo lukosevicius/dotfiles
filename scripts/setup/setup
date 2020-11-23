@@ -72,7 +72,7 @@ install-package calibre
 install-package gimp
 
 # needs special treatment
-# install-brave
+install-brave
 # install-code
 
 
