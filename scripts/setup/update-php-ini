@@ -5,12 +5,7 @@ post_max_size=50M
 max_execution_time=0
 max_input_time=223
 
-if ( isdebian )
-then
-    php_ini_file=/etc/php/7.4/apache2/php.ini
-else
-    php_ini_file=/etc/php.ini
-fi
+php_ini_file=/etc/php/7.4/apache2/php.ini
 
 for key in upload_max_filesize post_max_size max_execution_time max_input_time
 do
