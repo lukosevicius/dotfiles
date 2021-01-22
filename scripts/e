@@ -32,6 +32,7 @@ case $1 in
   "profile") file_path=~/dotfiles/.bash_profile ;;
   "hosts") file_path=~/etc/hosts ;;
   "script") file_path=~/dotfiles/scripts/$2 ;;
+  "katilai") file_path=/var/www/katilai-scrapers/katilai_scrapers/spiders/config.json ;;
   *) echo "no such option"; exit 0;;
 esac
 

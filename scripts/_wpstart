@@ -3,10 +3,10 @@
 function start {
     echo -e "*** Starting wpstart script ***"
     ask_for_data $@
-    # create_db
-    # install
-    # change_permissions
-    # config
+    create_db
+    install
+    change_permissions
+    config
 }
 
 function ask_for_data {
@@ -14,7 +14,7 @@ function ask_for_data {
     PROJECT_NAME=$1
 
     # Site
-    URL=$PROJECT_NAME
+    URL=$PROJECT_NAME".local"
     TITLE=$PROJECT_NAME
     ADMIN_USER=""
     ADMIN_PASS=""
@@ -30,16 +30,12 @@ function ask_for_data {
         echo $#
         echo "Please provide project name"
         exit 
-    else 
-        if ( ! check_for_config ); then
-            ask_questions 
-        fi
     fi
 
     PEOJECT_NAME=$1
 
-    echo "PROJECT NAME: $PROJECT_NAME"
-    echo "Site URL: $PROJECT_NAME"
+    echo "Project name: $PROJECT_NAME"
+    echo "Site URL: $URL"
 }
 
 function ask_questions {
@@ -105,7 +101,7 @@ function change_permissions {
 
 function config {
     wp config set 'FS_METHOD' 'direct' --add
-    wp config set 'FS_DEBUG' 'true' --add
+    wp config set 'WP_DEBUG' 'true' --add
 }
 
 start $@

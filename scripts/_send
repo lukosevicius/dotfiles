@@ -3,7 +3,7 @@
 HOME_IP="ip-here"
 HOME_FOLDER="/home/mantas/incoming"
 ALL_COMMANDS=("home" "honey" "quit")
-HONEY_IP="mantas@207.154.218.114"
+HONEY_IP=""
 HONEY_FOLDER="/var/www/incoming"
 
 function start {
