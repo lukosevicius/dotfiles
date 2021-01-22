@@ -39,14 +39,6 @@ alias ln="ln -iv"
 
 alias inc="mv /var/www/incoming/* ."
 
-alias get-bedrock="wget https://github.com/roots/bedrock/archive/master.zip && unzip master.zip && rm master.zip && mv bedrock-master/*(DN) . && rm -rf bedrock-master/"
-alias getlamp="wget --no-cache -O - https://gist.github.com/EmpireWorld/737fbb9f403d4dd66dee1364d866ba7e/raw/install-lamp.sh | bash"
-alias getgravdeps="sudo apt-get install php7.4-mbstring php7.4-curl php7.4-zip php7.4-dom php7.4-gd"
-# sudo apt composer install
-# sudo a2enmod rewrite
-
-# install
-alias getaxios="npm install --save axios@0.18.1"
 
 # git
 # alias ga="git add ."
