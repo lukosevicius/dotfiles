@@ -68,12 +68,19 @@ latest_file_full=`find $where_to_look -maxdepth 1 -type f -printf '%T+ %p\n' | s
 echo "Latest file here:"
 echo -e "\e[32m$latest_file_full\e[0m"
 
-read -r -p "Are you sure? [Y/n] " response
-if [[ "$response" =~ ^([nN])$ ]]
-then
-    exit 0
-fi
+latest_file_full_string=`basename $latest_file_full`
+
+file_date=`cut -d ' ' -f 1 $latest_file_full_string`
+
+echo $file_date
+
+# read -r -p "Are you sure? [Y/n] " response
+# if [[ "$response" =~ ^([nN])$ ]]
+# then
+#     exit 0
+# fi
 
 # latest_file=`find $where_to_look -maxdepth 1 -type f -printf '%T+ %p\n'  | sort -r | head -n 1 | cut -d ' ' -f2-`
 latest_file=`find $where_to_look -maxdepth 1 -printf '%T+ %p\n'  | sort -r | head -n 1 | cut -d ' ' -f2-`
-sudo cp -iv "$latest_file" . 
+echo $latest_file
+# sudo cp -iv "$latest_file" . 
