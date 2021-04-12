@@ -1,0 +1,1 @@
+My aliases, scripts and other stuff that make life easier.
