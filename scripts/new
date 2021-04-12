@@ -7,16 +7,16 @@ create_script() {
     sudo echo "" >> $1
     sudo echo "echo 'hello from new script - $1'" >> $1 &&
     echo 'script was created'
-    echo '~/bin/'$1
+    echo $1
 }
 
 if [ $# -eq 1 ];
 then
-    create_script '~/bin/'$1
+    create_script '/home/mantas/dotfiles/scripts/'$1
 else
     echo "Please enter name of the script:"
     read
-    create_script '~/bin/'$REPLY
+    create_script '/home/mantas/dotfiles/scripts/'$REPLY
 fi
 
 
