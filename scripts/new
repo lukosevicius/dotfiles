@@ -1,5 +1,16 @@
 #!/bin/bash
 
+function start {
+    if [ $# -eq 1 ];
+    then
+        create_script '/home/mantas/dotfiles/scripts/'$1
+    else
+        echo "Please enter name of the script:"
+        read
+        create_script '/home/mantas/dotfiles/scripts/'$REPLY
+    fi
+}
+
 create_script() {
     sudo touch $1 &&
     sudo chmod -R 777 $1 &&
@@ -10,14 +21,6 @@ create_script() {
     echo $1
 }
 
-if [ $# -eq 1 ];
-then
-    create_script '/home/mantas/dotfiles/scripts/'$1
-else
-    echo "Please enter name of the script:"
-    read
-    create_script '/home/mantas/dotfiles/scripts/'$REPLY
-fi
-
+start "$@"
 
 
