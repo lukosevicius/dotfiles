@@ -8,4 +8,4 @@ My aliases, scripts and other stuff that make life easier.
 
     ./bash-connect
     source ~/.bashrc
-This replaces local .bashrc file with symlink to .bashrc from dotfiles. So proceed with caution.
+This replaces local .bashrc file with symlink to .bashrc from dotfiles, so proceed with caution.
