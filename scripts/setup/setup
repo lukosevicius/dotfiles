@@ -41,11 +41,11 @@ function install-code {
 
         sudo apt install apt-transport-https
         sudo apt update
-        install-package code # or code-insiders
+        install-package code
 }
 
 
-# command line programs
+# command-line programs
 install-package curl
 install-package unzip
 install-package vim
