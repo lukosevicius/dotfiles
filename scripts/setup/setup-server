@@ -1,0 +1,35 @@
+#!/bin/bash
+
+echo "starting setup"
+
+log_file=~/install_progress_log.txt
+
+function install-package {
+
+        sudo apt install -y $1
+
+        if type -p $1 > /dev/null; then
+                echo "$1 Installed" >> $log_file
+        else
+                echo "$1 FAILED TO INSTALL!!!" >> $log_file
+        fi
+}
+
+
+
+# command-line programs
+install-package curl
+install-package unzip
+install-package vim
+install-package git
+install-package lolcat
+install-package neofetch
+
+
+#==============
+# Give the user a summary of what has been installed
+#==============
+echo -e "\n====== Summary ======\n"
+cat $log_file
+echo
+rm $log_file
