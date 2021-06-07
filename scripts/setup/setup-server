@@ -16,6 +16,8 @@ function install-package {
 }
 
 
+#update repos
+sudo apt update && sudo apt upgrade
 
 # command-line programs
 install-package curl
