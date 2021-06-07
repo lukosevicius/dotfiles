@@ -29,7 +29,7 @@ sudo echo "<?php phpinfo(); ?>" > /var/www/html/info.php
 # xdg-open "http://localhost/info.php"
 
 # install some php extensions
-sudo apt install -y php8-mbstring php8-curl php8-dom php8-gd php8-xml php8-zip php8-gettext php8-xdebug
+sudo apt install -y php8.0-mbstring php8.0-curl php8.0-dom php8.0-gd php8.0-xml php8.0-zip php8.0-gettext php8.0-xdebug
 # sudo apt install phpmyadmin
 
 sudo a2enmod rewrite
