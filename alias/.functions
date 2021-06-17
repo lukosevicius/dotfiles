@@ -6,7 +6,7 @@ function sc(){
     echo "SOURCED ~/.zshrc"
   else
     source ~/.bashrc &&
-    echo "SOURCED ~/.bashrc" | lolcat
+    echo "SOURCED ~/.bashrc"
   fi
 }
 
