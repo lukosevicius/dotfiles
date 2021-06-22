@@ -25,8 +25,8 @@ alias react="cd ~/react"
 alias py='cd ~/py'
 
 # wordpress
-alias word="cd ~/wordpress"
-alias plugins="cd ~/wordpress/plugins"
+alias word="cd ~/Documents/wordpress"
+alias plugins="cd ~/Documents/wordpress/plugins"
 
 # dotfiles
 alias dots="cd ~/dotfiles"
