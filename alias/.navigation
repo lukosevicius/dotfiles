@@ -23,6 +23,8 @@ alias desktop="cd ~/Desktop"
 alias pics="cd ~/Pictures"
 alias react="cd ~/react"
 alias py='cd ~/py'
+alias code='cd ~/code'
+alias htdocs='cd /Applications/MAMP/htdocs'
 
 # wordpress
 alias word="cd ~/Documents/wordpress"

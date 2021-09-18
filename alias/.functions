@@ -3,7 +3,7 @@
 function sc(){
   if [[ "$SHELL" == "/bin/zsh" ]]; then
     source ~/.zshrc &&
-    echo "SOURCED ~/.zshrc"
+    echo "SOURCED ~/.zshrc" | lolcat
   else
     source ~/.bashrc &&
     echo "SOURCED ~/.bashrc"
