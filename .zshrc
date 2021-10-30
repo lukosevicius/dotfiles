@@ -17,35 +17,16 @@ function addToPATH {
   esac
 }
 
-# add dotfile's scripts to PATH
-if [ -d "$HOME/dotfiles" ] ; then
-    addToPATH $HOME/dot
-fi
-
-if [ -d "$HOME/dotfiles/scripts" ] ; then
-    addToPATH $HOME/dotfiles/scripts
-fi
-
-if [ -d "$HOME/dotfiles/scripts/setup" ] ; then
-    addToPATH $HOME/dotfiles/scripts/setup
-fi
-
-if [ -d "$HOME/dotfiles/scripts/server" ] ; then
-    addToPATH $HOME/dotfiles/scripts/server
-fi
-
-if [ -d "$HOME/dotfiles/scripts/helpers" ] ; then
-    addToPATH $HOME/dotfiles/scripts/helpers
-fi
-
-if [ -d "$HOME/dotfiles/scripts/tmp" ] ; then
-    addToPATH $HOME/dotfiles/scripts/tmp
-fi
-
 # source all alias
 for FILE in `find ~/dotfiles/alias`
 do
   [ -f $FILE ] && source $FILE
+done
+
+# add all scripts to PATH
+for FILE in `find ~/dotfiles/scripts`
+do
+  [ -f $FILE ] && addToPATH $FILE
 done
 
 
