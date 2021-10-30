@@ -1,10 +1,14 @@
+# Oh My Zsh
+# =================================
+
 export ZSH="/Users/mlukosevicius/.oh-my-zsh"
 ZSH_THEME="powerlevel10k/powerlevel10k"
 
 plugins=(git)
-
 source $ZSH/oh-my-zsh.sh
 
+# Scripts and Alias
+# =================================
 
 function addToPATH {
   case ":$PATH:" in
@@ -38,11 +42,15 @@ if [ -d "$HOME/dotfiles/scripts/tmp" ] ; then
     addToPATH $HOME/dotfiles/scripts/tmp
 fi
 
-# source all dotfiles (alias, functinos)
-for DOTFILE in `find ~/dotfiles/alias`
+# source all alias
+for FILE in `find ~/dotfiles/alias`
 do
-  [ -f $DOTFILE ] && source $DOTFILE
+  [ -f $FILE ] && source $FILE
 done
+
+
+# Other
+# =================================
 
 export VISUAL=vim
 export EDITOR="$VISUAL"
