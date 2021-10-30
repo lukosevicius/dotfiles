@@ -4,6 +4,7 @@ notes/wordpress
 # alias
 alias/.ssh
 alias/.tmp
+alias/.docker
 scripts/tmp
 
 # scripts
@@ -14,3 +15,6 @@ scripts/tmp/*
 config/*
 !config/*_example
 !config/.dircolors
+
+# apple
+.DS_Store
