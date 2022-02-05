@@ -15,7 +15,6 @@ function install-package {
         fi
 }
 
-
 #update repos
 sudo apt update && sudo apt upgrade
 
@@ -26,6 +25,11 @@ install-package vim
 install-package git
 install-package lolcat
 install-package neofetch
+
+# Node.js LTS (v14.x):
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+install-package nodejs
+install-package build-essential
 
 
 #==============
