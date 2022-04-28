@@ -1,7 +1,8 @@
 #!/bin/bash 
 
 # ls
-alias ll='ls -alF'
+alias ll='lsd -alF'
+alias tree='lsd --tree'
 alias la='ls -A'
 alias l='ls -CF'
 

@@ -1,0 +1,7 @@
+rebase() {
+    git checkout dev
+    git pull origin dev
+    git checkout -
+    git rebase dev
+    git push -f origin $(git branch --show-current)
+}
