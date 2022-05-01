@@ -36,6 +36,7 @@ alias htdocs='cd /Applications/MAMP/htdocs'
 # wordpress
 alias word="cd ~/Documents/wordpress"
 alias plugins="cd ~/Documents/wordpress/plugins"
+alias theme="cd wp-content/themes/*"
 
 # dotfiles
 alias dots="cd ~/dotfiles"
