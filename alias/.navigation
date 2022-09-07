@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash
 
 # use lsd if it's available, otherwise use regular ls
 if which lsd >/dev/null; then
@@ -13,7 +13,7 @@ alias l='ls -CF'
 
 # cs
 alias ~='cd ~'
-alias -- -="cd -"  
+alias -- -="cd -"
 alias ..='cd ..'
 alias ...='cd ../..'
 alias ....='cd ../../..'
@@ -33,6 +33,8 @@ alias docs="cd ~/Documents"
 alias downs="cd ~/Downloads"
 alias desktop="cd ~/Desktop"
 alias pics="cd ~/Pictures"
+alias proj="cd ~/projects"
+alias projects="cd ~/projects"
 alias react="cd ~/react"
 alias py='cd ~/py'
 alias code='cd ~/code'
