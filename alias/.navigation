@@ -37,7 +37,6 @@ alias proj="cd ~/projects"
 alias projects="cd ~/projects"
 alias react="cd ~/react"
 alias py='cd ~/py'
-alias code='cd ~/code'
 alias htdocs='cd /Applications/MAMP/htdocs'
 
 # wordpress
