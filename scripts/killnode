@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Get all Node.js processes that are listening on any port
+processes=$(lsof -i -P -n | grep node | awk '{print $2}')
+
+# Kill all of the processes
+for process in $processes
+do
+  echo "Killing process $process"
+  kill -9 $process
+done
+
+echo "All Node.js processes listening on any port have been killed."
