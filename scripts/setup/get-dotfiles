@@ -2,19 +2,10 @@
 
 function start {
     echo -e "*** Starting procedure of getting those sweet dotfiles.. ***"
-    # install-git
-    # create-ssh-key
+    install-git
+    create-ssh-key
     add-key-to-github
-    # download-dotfiles
-}
-
-function check-user {
-    echo -e "\n====== Checking user ======\n"
-
-    if [ $USER == "root" ]; then
-        echo "You are logged in as root, should use non-root user"
-        exit 1
-    fi
+    download-dotfiles
 }
 
 function install-git {
@@ -92,7 +83,6 @@ function add-key-to-github {
             ok "good boy"
             ;;
     esac
-
 }
 
 
