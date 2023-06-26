@@ -2,17 +2,17 @@
 
 function start {
     echo -e "*** Starting procedure of getting those sweet dotfiles.. ***"
-    install-git
-    create-ssh-key
+    # install-git
+    # create-ssh-key
     add-key-to-github
-    download-dotfiles
+    # download-dotfiles
 }
 
 function check-user {
     echo -e "\n====== Checking user ======\n"
 
     if [ $USER == "root" ]; then
-        echo "You are logged in as root, should use non-root user" 
+        echo "You are logged in as root, should use non-root user"
         exit 1
     fi
 }
@@ -28,18 +28,18 @@ function install-git {
         echo "error can't install git package"
         exit 1;
     fi
-    
+
     gitEmail="man.lukosevicius@gmail.com"
     gitName="lukosevicius"
-    
+
     if type -p git > /dev/null; then
         echo -e "\nSetting some git configs:"
-    
+
         git config --global user.email $gitEmail &&
         echo "Git: global user email set to $gitEmail"
         git config --global user.name $gitName &&
         echo "Git: global user email set to $gitName"
-        
+
         ok "git Installed"
 
     else
@@ -84,7 +84,7 @@ function add-key-to-github {
 
     read -r -p "Done? [Y/n] " response
     case "$response" in
-        [nN]) 
+        [nN])
             echo "exiting"
             exit
             ;;
@@ -96,8 +96,8 @@ function add-key-to-github {
 }
 
 
-function fail {   
-    echo -e "\n\e[31m$1\e[0m\n" 
+function fail {
+    echo -e "\n\e[31m$1\e[0m\n"
 }
 
 function ok {
