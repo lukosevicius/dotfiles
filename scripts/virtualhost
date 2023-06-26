@@ -8,7 +8,7 @@ domain=$2
 rootDir=$3
 
 if [ "$3" == "" ]; then
-	domain=$domain".local"
+	domain=$domain
 	rootDir=$domain
 fi
 
