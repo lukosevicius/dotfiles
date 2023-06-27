@@ -1,15 +1,15 @@
 # Oh My Zsh
 # =================================
 
-export ZSH="/Users/mlukosevicius/.oh-my-zsh"
+export ZSH="/Users/mantas/.oh-my-zsh"
 ZSH_THEME="powerlevel10k/powerlevel10k"
+# ZSH_THEME="robbyrussell"
+# ZSH_THEME="agnoster"
 
-plugins=(git)
+plugins=(
+  git
+)
 source $ZSH/oh-my-zsh.sh
-POWERLEVEL10K_DISABLE_GITSTATUS=true
-
-
-
 
 # Scripts and Alias
 # =================================
@@ -17,7 +17,7 @@ POWERLEVEL10K_DISABLE_GITSTATUS=true
 function addToPATH {
   case ":$PATH:" in
     *":$1:"*) :;; # already there
-    *) PATH="$1:$PATH";; # or PATH="$PATH:$1" 
+    *) PATH="$1:$PATH";; # or PATH="$PATH:$1"
   esac
 }
 
@@ -28,10 +28,13 @@ do
 done
 
 # add all scripts to PATH
-for FILE in `find ~/dotfiles/scripts`
-do
-  [ -f $FILE ] && addToPATH $FILE
-done
+export PATH=$PATH:/Users/mantas/dotfiles/scripts
+export PATH=$PATH:/Users/mantas/dotfiles/private
+
+# for FILE in `find ~/dotfiles/scripts`
+# do
+#   [ -f $FILE ] && addToPATH $FILE
+# done
 
 
 # Other
@@ -45,7 +48,10 @@ export EDITOR="$VISUAL"
   # eval $(dircolors ~/.dircolors)
 # fi
 
-source ~/.nvm/nvm.sh
+# source ~/.nvm/nvm.sh
+export NVM_DIR="$HOME/.nvm"
+[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
+[ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
 
 export PATH="/usr/local/opt/php:$PATH"
 
@@ -57,4 +63,4 @@ export LESS_TERMCAP_me=$'\e[0m'
 export LESS_TERMCAP_se=$'\e[0m'
 export LESS_TERMCAP_so=$'\e[01;33m'
 export LESS_TERMCAP_ue=$'\e[0m'
-export LESS_TERMCAP_us=$'\e[1;4;31m'
+# export LESS_TERMCAP_us=$'\e[1;4;31m'source ~/powerlevel10k/powerlevel10k.zsh-theme
