@@ -1,0 +1,11 @@
+#!/bin/bash
+
+defaultgateway=$(netstat -nr | grep default | awk '{print $2}')
+
+for i in $(host chat.openai.com | grep "has address" | awk '{print $4}' | xargs); do
+   sudo route add $i $defaultgateway
+done
+
+for i in $(host stream-live.lrt.lt | grep "has address" | awk '{print $4}' | xargs); do
+   sudo route add $i $defaultgateway
+done
