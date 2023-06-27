@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash
 
 alias c="clear"
 alias q="exit"
@@ -39,6 +39,9 @@ alias ln="ln -iv"
 
 alias inc="mv /var/www/incoming/* ."
 
+alias npm="echo 'use yarn dumbo'"
+
+alias showip="ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'"
 
 # git
 # alias ga="git add ."
