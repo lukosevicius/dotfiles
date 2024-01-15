@@ -14,3 +14,7 @@ My aliases, scripts and other stuff that make life easier.
     source ~/.bashrc
 
 This replaces local .bashrc file with symlink to .bashrc from dotfiles, so proceed with caution.
+
+In server it is good to change prompt color, so it wouldn't be mixed up with the local one. The command:
+
+    change-env
