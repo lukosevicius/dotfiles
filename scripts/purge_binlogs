@@ -1,0 +1,6 @@
+#!/bin/bash
+
+echo "Purging all MySQL binary logs up to the current moment..."
+mysql "PURGE BINARY LOGS BEFORE NOW();"
+
+echo "Purge complete."
