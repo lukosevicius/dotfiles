@@ -27,9 +27,14 @@ do
   [ -f $FILE ] && source $FILE
 done
 
+# source git alias
+source ~/dotfiles/git/alias
+
 # add all scripts to PATH
+export PATH=$PATH:/Users/mantas/Library/Python/3.9/bin
 export PATH=$PATH:/Users/mantas/dotfiles/scripts
 export PATH=$PATH:/Users/mantas/dotfiles/private
+export PATH=$PATH:/Users/mantas/dotfiles/git
 
 # for FILE in `find ~/dotfiles/scripts`
 # do

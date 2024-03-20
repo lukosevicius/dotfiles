@@ -1,0 +1,11 @@
+#!/bin/bash
+
+gc() {
+    if [ $# -eq 0 ]; then
+        echo "add message: gc {message}"
+    else
+        git commit -m "$@"
+    fi
+}
+
+

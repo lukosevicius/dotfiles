@@ -1,4 +1,5 @@
 #!/bin/bash
 
+alias gs="git status"
 alias uncommit="git reset --soft HEAD^"
 alias clearBranches="git branch | grep -v "main" | xargs git branch -D"
