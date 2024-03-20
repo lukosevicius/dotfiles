@@ -28,7 +28,7 @@ do
 done
 
 # source git alias
-source ~/dotfiles/git/alias
+source ~/dotfiles/git/.alias
 
 # add all scripts to PATH
 export PATH=$PATH:/Users/mantas/Library/Python/3.9/bin
