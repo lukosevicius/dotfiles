@@ -8,6 +8,7 @@ alias gf="git fetch"
 alias gp="git pull"
 alias pull="git pull"
 alias push="git push"
+alias branch="git branch"
 
 alias ch-="git checkout -"
 alias back="git checkout -"
@@ -17,4 +18,4 @@ alias main="git checkout main"
 alias master="git checkout master"
 
 alias uncommit="git reset --soft HEAD^"
-alias clearBranches="git branch | grep -v "main" | xargs git branch -D"
+alias clearBranches="git branch | grep -vE 'dev|main|master' | xargs git branch -D"
