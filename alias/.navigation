@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # use lsd if it's available, otherwise use regular ls
+alias ll='ls -alF'
 # if which lsd >/dev/null; then
 #     alias ll='lsd -alF'
 #     alias tree='lsd --tree'
