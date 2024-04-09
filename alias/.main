@@ -9,9 +9,9 @@ alias hosts='sudo vi /etc/hosts'
 alias myip="curl -4 icanhazip.com"
 
 # programs
-alias v='sudo vim'
-alias vi='sudo vim'
-alias vim='sudo vim'
+alias v='vim'
+alias vi='vim'
+alias vim='vim'
 
 alias mysql='sudo mysql'
 alias p='python3'
