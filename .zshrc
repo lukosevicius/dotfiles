@@ -72,3 +72,13 @@ export LESS_TERMCAP_ue=$'\e[0m'
 
 # for Volta to work with React Native
 unset _VOLTA_TOOL_RECURSION
+
+export ANDROID_HOME=~/Library/Android/sdk
+export PATH=$PATH:$ANDROID_HOME/emulator
+export PATH=$PATH:$ANDROID_HOME/tools
+export PATH=$PATH:$ANDROID_HOME/tools/bin
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+
+# use ruby from rbenv, not system's ruby
+export PATH="$HOME/.rbenv/bin:$PATH"
+eval "$(rbenv init - zsh)"
