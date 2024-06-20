@@ -2,7 +2,7 @@
 
 alias c="clear"
 alias q="exit"
-alias s='sudo'
+alias sg='s -p google'
 alias hosts='sudo vi /etc/hosts'
 # alias rm="sudo rm -rfiv "
 
@@ -42,3 +42,4 @@ alias inc="mv /var/www/incoming/* ."
 
 alias showip="ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'"
 
+alias h="history | fzf"
