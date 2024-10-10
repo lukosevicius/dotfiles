@@ -43,7 +43,7 @@ alias htdocs='cd /Applications/MAMP/htdocs'
 # wordpress
 alias word="cd ~/Documents/wordpress"
 alias plugins="cd ~/Documents/wordpress/plugins"
-alias theme="cd wp-content/themes/*"
+alias themes="cd wp-content/themes"
 
 # dotfiles
 alias dots="cd ~/dotfiles"
@@ -53,9 +53,9 @@ alias config="cd ~/dotfiles/config"
 alias configs="cd ~/dotfiles/config"
 
 # Gnome
-alias themes='cd /usr/share/themes'
-alias icons='cd /usr/share/icons'
-alias fonts='cd /usr/share/fonts'
+# alias themes='cd /usr/share/themes'
+# alias icons='cd /usr/share/icons'
+# alias fonts='cd /usr/share/fonts'
 
 # Apache
 alias apache="cd /etc/apache2"
