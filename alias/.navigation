@@ -36,9 +36,7 @@ alias desktop="cd ~/Desktop"
 alias pics="cd ~/Pictures"
 alias proj="cd ~/projects"
 alias projects="cd ~/projects"
-alias react="cd ~/react"
-alias py='cd ~/py'
-alias htdocs='cd /Applications/MAMP/htdocs'
+alias sites='cd ~/sites'
 
 # wordpress
 alias word="cd ~/Documents/wordpress"
@@ -58,6 +56,6 @@ alias configs="cd ~/dotfiles/config"
 # alias fonts='cd /usr/share/fonts'
 
 # Apache
-alias apache="cd /etc/apache2"
-alias sites='cd /etc/apache2/sites-available/'
-alias enabled='cd /etc/apache2/sites-enabled/'
+# alias apache="cd /etc/apache2"
+# alias sites='cd /etc/apache2/sites-available/'
+# alias enabled='cd /etc/apache2/sites-enabled/'
