@@ -33,6 +33,7 @@ source ~/dotfiles/git/.alias
 # add all scripts to PATH
 export PATH=$PATH:/Users/mantas/Library/Python/3.9/bin
 export PATH=$PATH:/Users/mantas/dotfiles/scripts
+export PATH=$PATH:/Users/mantas/dotfiles/scripts/wordpress
 export PATH=$PATH:/Users/mantas/dotfiles/private
 export PATH=$PATH:/Users/mantas/dotfiles/git
 
@@ -82,3 +83,8 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 # use ruby from rbenv, not system's ruby
 export PATH="$HOME/.rbenv/bin:$PATH"
 eval "$(rbenv init - zsh)"
+
+# zoxide
+# https://github.com/ajeetdsouza/zoxide?tab=readme-ov-file
+eval "$(zoxide init zsh)"
+
