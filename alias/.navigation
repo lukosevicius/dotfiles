@@ -12,7 +12,8 @@ alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 
-# cs
+# cd
+alias cd='z'
 alias ~='cd ~'
 alias -- -="cd -"
 alias ..='cd ..'
@@ -49,6 +50,15 @@ alias dotfiles="cd ~/dotfiles"
 alias scripts="cd ~/dotfiles/scripts"
 alias config="cd ~/dotfiles/config"
 alias configs="cd ~/dotfiles/config"
+
+# work
+alias front="cd ~/projects/origination-app-frontend"
+alias qa="cd ~/projects/origination-qa"
+alias front="cd ~/projects/origination-app-frontend"
+alias bank="cd ~/projects/saldo-bank-storyblok"
+alias app="cd ~/projects/saldo-mobile-app"
+alias pricing="cd ~/projects/pricing-api"
+
 
 # Gnome
 # alias themes='cd /usr/share/themes'

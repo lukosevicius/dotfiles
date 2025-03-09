@@ -1,0 +1,190 @@
+#!/bin/bash
+
+# Function to generate a random number within a specified range
+generate_random_number() {
+    local min=$1
+    local max=$2
+    echo $(( RANDOM % (max - min + 1) + min ))
+}
+
+# Function to calculate Lithuanian SSN checksum digit
+calculate_lt_checksum() {
+    local ssn="$1"
+    local weights1=(1 2 3 4 5 6 7 8 9 1)
+    local weights2=(3 4 5 6 7 8 9 1 2 3)
+    local sum1=0
+    local sum2=0
+
+    for i in {0..9}; do
+        sum1=$((sum1 + ${ssn:$i:1} * ${weights1[$i]}))
+        sum2=$((sum2 + ${ssn:$i:1} * ${weights2[$i]}))
+    done
+
+    local checksum=$((sum1 % 11))
+    if [ $checksum -eq 10 ]; then
+        checksum=$((sum2 % 11))
+        if [ $checksum -eq 10 ]; then
+            checksum=0
+        fi
+    fi
+
+    echo $checksum
+}
+
+# Function to calculate Finnish SSN control character
+calculate_fi_control_char() {
+    local ssn="$1"
+    local control_chars="0123456789ABCDEFHJKLMNPRSTUVWXY"
+    local remainder=$((10#$ssn % 31))
+    echo "${control_chars:$remainder:1}"
+}
+# Function to calculate Swedish SSN checksum digit using Luhn algorithm
+calculate_se_checksum() {
+    local ssn="$1"
+    local sum=0
+    local double=0
+
+    for (( i=0; i<9; i++ )); do
+        digit=${ssn:$i:1}
+        if (( i % 2 == 0 )); then
+            double=$((digit * 2))
+            if (( double > 9 )); then
+                double=$((double - 9))
+            fi
+            sum=$((sum + double))
+        else
+            sum=$((sum + digit))
+        fi
+    done
+
+    checksum=$((10 - (sum % 10)))
+    if [ $checksum -eq 10 ]; then
+        checksum=0
+    fi
+
+    echo $checksum
+}
+
+# Generate Lithuanian SSN
+generate_lt_ssn() {
+    current_year=$(date +"%Y")
+    min_birth_year=$((current_year - 50))
+    max_birth_year=$((current_year - 18))
+
+    birth_year=$(generate_random_number $min_birth_year $max_birth_year)
+    birth_month=$(generate_random_number 1 12)
+    birth_day=$(generate_random_number 1 28) # Simplified for demonstration
+
+    gender=$((RANDOM % 2)) # 0 for female, 1 for male
+    century=$((birth_year / 100))
+    G=$((century * 2 - 34 - gender))
+
+    YY=$(printf "%02d" $((birth_year % 100)))
+    MM=$(printf "%02d" $birth_month)
+    DD=$(printf "%02d" $birth_day)
+    NNN=$(printf "%03d" $(generate_random_number 0 999))
+
+    ssn_base="$G$YY$MM$DD$NNN"
+    checksum=$(calculate_lt_checksum "$ssn_base")
+
+    echo "$ssn_base$checksum"
+}
+
+# Generate Finnish SSN
+generate_fi_ssn() {
+    current_year=$(date +"%Y")
+    min_birth_year=$((current_year - 50))
+    max_birth_year=$((current_year - 18))
+
+    birth_year=$(generate_random_number $min_birth_year $max_birth_year)
+    birth_month=$(generate_random_number 1 12)
+    birth_day=$(generate_random_number 1 28) # Simplified for demonstration
+
+    YY=$(printf "%02d" $((birth_year % 100)))
+    MM=$(printf "%02d" $birth_month)
+    DD=$(printf "%02d" $birth_day)
+
+    century_sign="-"
+    if [ $birth_year -ge 2000 ]; then
+        century_sign="A"
+    fi
+
+    gender=$((RANDOM % 2)) # 0 for female, 1 for male
+    ZZZ=$(printf "%03d" $(generate_random_number 2 899))
+    if [ $gender -eq 1 ]; then
+        ZZZ=$(printf "%03d" $((ZZZ | 1))) # Ensure odd for male
+    else
+        ZZZ=$(printf "%03d" $((ZZZ & ~1))) # Ensure even for female
+    fi
+
+    ssn_base="$DD$MM$YY$ZZZ"
+    control_char=$(calculate_fi_control_char "$ssn_base")
+
+    echo "$DD$MM$YY$century_sign$ZZZ$control_char"
+}
+
+# Generate Swedish SSN
+generate_se_ssn() {
+    current_year=$(date +"%Y")
+    min_birth_year=$((current_year - 50))
+    max_birth_year=$((current_year - 18))
+
+    birth_year=$(generate_random_number $min_birth_year $max_birth_year)
+    birth_month=$(generate_random_number 1 12)
+    birth_day=$(generate_random_number 1 28) # Simplified for demonstration
+
+    YY=$(printf "%02d" $((birth_year % 100)))
+    MM=$(printf "%02d" $birth_month)
+    DD=$(printf "%02d" $birth_day)
+
+    gender=$((RANDOM % 2)) # 0 for female, 1 for male
+    NNN=$(printf "%03d" $(generate_random_number 0 999))
+    if [ $gender -eq 1 ]; then
+        NNN=$(printf "%03d" $((NNN | 1))) # Ensure odd for male
+    else
+        NNN=$(printf "%03d" $((NNN & ~1))) # Ensure even for female
+    fi
+
+    ssn_base="$YY$MM$DD$NNN"
+    checksum=$(calculate_se_checksum "$ssn_base")
+
+    echo "$YY$MM$DD-$NNN$checksum"
+}
+
+
+# Function to copy to clipboard
+copy_to_clipboard() {
+    local data="$1"
+    if command -v pbcopy > /dev/null; then
+        echo "$data" | pbcopy
+    elif command -v xclip > /dev/null; then
+        echo "$data" | xclip -selection clipboard
+    elif command -v xsel > /dev/null; then
+        echo "$data" | xsel --clipboard --input
+    else
+        echo "Clipboard utilities pbcopy, xclip, or xsel not found. Cannot copy to clipboard."
+    fi
+}
+
+# Generate and copy SSN based on selection
+case "$1" in
+    "lt")
+        ssn=$(generate_lt_ssn)
+        echo $ssn
+        copy_to_clipboard "$ssn"
+        ;;
+    "fi")
+        ssn=$(generate_fi_ssn)
+        echo $ssn
+        copy_to_clipboard "$ssn"
+        ;;
+    "se")
+        ssn=$(generate_se_ssn)
+        echo $ssn
+        copy_to_clipboard "$ssn"
+        ;;
+    *)
+        echo "Usage: $0 {lt|fi|se}"
+        exit 1
+        ;;
+esac

@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Script to copy files to ./out directory
+# Skips hidden files and directories
+
+# Create output directory in the current working directory
+OUTPUT_DIR="./out"
+
+# Check if output directory exists, create it if it doesn't
+if [ ! -d "$OUTPUT_DIR" ]; then
+  mkdir -p "$OUTPUT_DIR"
+  if [ $? -ne 0 ]; then
+    exit 1
+  fi
+else
+  # Clean out directory by removing all existing files
+  rm -rf "$OUTPUT_DIR"/*
+fi
+
+# Use process substitution instead of pipe to avoid subshell issues
+while IFS= read -r -d $'\0' file; do
+  # Skip the script itself
+  if [ "$(basename "$file")" = "out" ]; then
+    continue
+  fi
+
+  # Get the filename without the path
+  filename=$(basename "$file")
+
+  # Skip files that start with a dot
+  if [[ "$filename" == .* ]]; then
+    continue
+  fi
+
+  # Copy the file to the output directory
+  cp "$file" "$OUTPUT_DIR/$filename"
+
+done < <(find . -type f -not -path "*/\.*" -not -path "$OUTPUT_DIR/*" -not -path "$OUTPUT_DIR" -print0)
+
+# Count files in output directory directly
+COPIED_COUNT=$(find "$OUTPUT_DIR" -type f | wc -l)
+
+# Print only the number of files copied
+echo $COPIED_COUNT
