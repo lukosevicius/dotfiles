@@ -17,9 +17,6 @@ alias mysql='sudo mysql'
 alias p='python3'
 alias python='python3'
 
-alias dots-origin="echo git remote add origin git@github.com:lukosevicius/dotfiles.git"
-
-
 alias rmrf='sudo rm -rf'
 # alias rmrf*='sudo rm -rf * && sudo rm -rf .*'
 

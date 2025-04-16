@@ -59,13 +59,3 @@ alias bank="cd ~/projects/saldo-bank-storyblok"
 alias app="cd ~/projects/saldo-mobile-app"
 alias pricing="cd ~/projects/pricing-api"
 
-
-# Gnome
-# alias themes='cd /usr/share/themes'
-# alias icons='cd /usr/share/icons'
-# alias fonts='cd /usr/share/fonts'
-
-# Apache
-# alias apache="cd /etc/apache2"
-# alias sites='cd /etc/apache2/sites-available/'
-# alias enabled='cd /etc/apache2/sites-enabled/'
