@@ -1,0 +1,207 @@
+#!/bin/bash
+
+# git-back.sh - A script to easily navigate Git commits
+# Usage:
+#   back <number>      - Move back <number> commits from current HEAD
+#   back top           - Move to the latest commit (top of the branch)
+#   back <commit-hash> - Move to specified commit hash and show distance from HEAD
+#   status <commit-hash> - Show information about a commit without checking it out
+
+# Script name for usage display
+SCRIPT_NAME=$(basename "$0")
+
+# Check if script is being run in a git repository
+if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    echo "Error: Not in a git repository"
+    exit 1
+fi
+
+# Show usage if no arguments provided
+if [ $# -eq 0 ]; then
+    echo "Usage:"
+    echo "  $SCRIPT_NAME <number>      - Move back <number> commits from current HEAD"
+    echo "  $SCRIPT_NAME top           - Move to the latest commit (top of the branch)"
+    echo "  $SCRIPT_NAME <commit-hash> - Move to specified commit hash and show distance from HEAD"
+    echo "  $SCRIPT_NAME status <commit-hash> - Show information about a commit without checking it out"
+    exit 1
+fi
+
+# Handle 'status' command
+if [ "$1" = "status" ]; then
+    if [ $# -ne 2 ]; then
+        echo "Error: 'status' command requires a commit hash"
+        echo "Usage: $SCRIPT_NAME status <commit-hash>"
+        exit 1
+    fi
+
+    # Verify the commit hash
+    full_hash=$(git rev-parse --verify "$2" 2>/dev/null)
+    if [ $? -ne 0 ]; then
+        echo "Error: '$2' is not a valid commit hash or reference"
+        exit 1
+    fi
+
+    # Get the commit message
+    commit_msg=$(git log -1 --pretty=format:"%s" "$full_hash")
+
+    # Get current HEAD
+    current_head=$(git rev-parse HEAD)
+
+    if [ "$current_head" = "$full_hash" ]; then
+        echo "The commit $2 ($full_hash) is the current HEAD"
+        echo "Commit message: \"$commit_msg\""
+        exit 0
+    fi
+
+    # Check if the commit is an ancestor of HEAD
+    if git merge-base --is-ancestor "$full_hash" "$current_head"; then
+        # Calculate the number of commits between HEAD and the specified commit
+        commit_count=$(git rev-list --count HEAD ^"$full_hash")
+
+        echo "The commit $2 ($full_hash) is $commit_count commits before the current HEAD"
+        echo "Commit message: \"$commit_msg\""
+    else
+        # Try to see if HEAD is an ancestor of the commit (ahead of HEAD)
+        if git merge-base --is-ancestor "$current_head" "$full_hash"; then
+            commit_count=$(git rev-list --count "$full_hash" ^HEAD)
+            echo "The commit $2 ($full_hash) is $commit_count commits ahead of the current HEAD"
+            echo "Commit message: \"$commit_msg\""
+        else
+            echo "The commit $2 ($full_hash) is not in the same history line as the current HEAD"
+            echo "It is likely on a different branch"
+            echo "Commit message: \"$commit_msg\""
+        fi
+    fi
+
+    exit 0
+fi
+
+# Handle 'back top' command
+if [ "$1" = "top" ]; then
+    # Find the original branch of the current detached HEAD
+    original_branch=""
+
+    # First check if we're already on a branch
+    current_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+    if [ -n "$current_branch" ]; then
+        # We're already on a branch, just go to its latest commit
+        echo "Already on branch '$current_branch'. Moving to its latest commit."
+        git checkout "$current_branch"
+        exit 0
+    else
+        # We're in detached HEAD state, need to find which branch we came from
+
+        # Get the commit hash we're currently on
+        current_commit=$(git rev-parse HEAD)
+
+        # Find all branches that contain this commit
+        branches_containing=$(git branch --contains "$current_commit" | grep -v "detached" | sed 's/^[ *]*//')
+
+        if [ -n "$branches_containing" ]; then
+            # Multiple branches might contain this commit
+            branch_count=$(echo "$branches_containing" | wc -l)
+
+            if [ "$branch_count" -eq 1 ]; then
+                # Only one branch contains this commit
+                original_branch=$(echo "$branches_containing" | tr -d ' ')
+                echo "Returning to branch '$original_branch' that contains current commit"
+                git checkout "$original_branch"
+                exit 0
+            else
+                # Multiple branches contain this commit
+                echo "Current commit exists in multiple branches:"
+                echo "$branches_containing"
+                echo ""
+                echo "Please specify which branch to return to with: git checkout <branch-name>"
+                exit 1
+            fi
+        else
+            # No branches contain this commit, fall back to default branch
+            default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+
+            # If we couldn't determine the default branch, try common names
+            if [ -z "$default_branch" ]; then
+                # Check for common branch names
+                for branch in main master develop; do
+                    if git show-ref --verify --quiet refs/heads/$branch; then
+                        default_branch=$branch
+                        break
+                    fi
+                done
+            fi
+
+            if [ -n "$default_branch" ]; then
+                echo "Warning: Current commit doesn't belong to any branch."
+                echo "Moving to the default branch '$default_branch' instead."
+                git checkout "$default_branch"
+            else
+                # Get the list of local branches
+                echo "You are in detached HEAD state and no branch could be determined."
+                echo "Available local branches:"
+                git branch
+                echo ""
+                echo "Please checkout a branch manually with: git checkout <branch-name>"
+                exit 1
+            fi
+        fi
+    fi
+    exit 0
+fi
+
+# Check if the argument matches 'git status <hash>' pattern
+if [ "$1" = "git" ] && [ "$2" = "status" ] && [ $# -eq 3 ]; then
+    # Redirect to our status command
+    "$0" status "$3"
+    exit $?
+fi
+
+# Check if the argument is a number
+if [[ "$1" =~ ^[0-9]+$ ]]; then
+    # Get the commit hash for the specified number of commits back
+    commit_hash=$(git rev-parse HEAD~$1 2>/dev/null)
+    if [ $? -ne 0 ]; then
+        echo "Error: Could not find commit $1 steps back. History may not be that deep."
+        exit 1
+    fi
+
+    # Checkout the specified commit
+    echo "Moving back $1 commits to $commit_hash"
+    git checkout "$commit_hash"
+    exit 0
+fi
+
+# If we're here, the argument is likely a commit hash
+# First, verify it's a valid hash
+full_hash=$(git rev-parse --verify "$1" 2>/dev/null)
+if [ $? -ne 0 ]; then
+    echo "Error: '$1' is not a valid commit hash or reference"
+    echo "Usage:"
+    echo "  $SCRIPT_NAME <number>      - Move back <number> commits from current HEAD"
+    echo "  $SCRIPT_NAME top           - Move to the latest commit (top of the branch)"
+    echo "  $SCRIPT_NAME <commit-hash> - Move to specified commit hash and show distance from HEAD"
+    echo "  $SCRIPT_NAME status <commit-hash> - Show information about a commit without checking it out"
+    exit 1
+fi
+
+# Try to find the commit distance from HEAD
+current_head=$(git rev-parse HEAD)
+if [ "$current_head" = "$full_hash" ]; then
+    echo "The specified commit is the current HEAD"
+    exit 0
+fi
+
+# Check if the commit is an ancestor of HEAD
+if git merge-base --is-ancestor "$full_hash" "$current_head"; then
+    # Calculate the number of commits between HEAD and the specified commit
+    commit_count=$(git rev-list --count HEAD ^"$full_hash")
+
+    echo "The commit $1 ($full_hash) is $commit_count commits before the current HEAD"
+    echo "Moving to commit $full_hash"
+    git checkout "$full_hash"
+else
+    echo "The commit $1 ($full_hash) is not an ancestor of the current HEAD"
+    echo "It might be on a different branch or ahead of the current HEAD"
+    echo "Moving to commit $full_hash"
+    git checkout "$full_hash"
+fi

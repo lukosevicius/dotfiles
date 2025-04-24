@@ -11,7 +11,6 @@ alias push="git push"
 alias branch="git branch"
 
 alias ch-="git checkout -"
-alias back="git checkout -"
 
 alias dev="git checkout dev"
 alias main="git checkout main"
