@@ -62,15 +62,32 @@ async function exportCategories(): Promise<void> {
     fs.mkdirSync(config.outputDir, { recursive: true });
   }
 
-  console.log(`Exporting categories from ${config.exportBaseUrl}...`);
-
+  console.log("🔍 Fetching categories from WooCommerce API...");
+  
   // Step 1: Fetch all categories in all languages to get translation information
   const allCategories = await fetchAllPages(
     `${config.exportBaseUrl}/wp-json/wc/v3/products/categories?lang=all`
   );
-
-  console.log(`Fetched ${allCategories.length} categories in all languages`);
-
+  
+  console.log(`✅ Fetched ${allCategories.length} categories in total`);
+  
+  // Debug: Check what languages are actually present in the response
+  const languagesInResponse = new Set<string>();
+  allCategories.forEach(cat => {
+    if (cat.lang) {
+      languagesInResponse.add(cat.lang);
+    }
+    
+    // Also check translations property
+    if (cat.translations) {
+      Object.keys(cat.translations).forEach(lang => {
+        languagesInResponse.add(lang);
+      });
+    }
+  });
+  
+  console.log("📊 Languages found in API response:", Array.from(languagesInResponse).join(", "));
+  
   // Step 2: Organize categories by language
   const categoriesByLang: Record<string, any[]> = {};
   const translationMap: Record<string, Record<string, number>> = {};

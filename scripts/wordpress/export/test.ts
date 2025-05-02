@@ -90,11 +90,14 @@ function visualizeTranslationRelationships(exportData: ExportData) {
       console.log(slugCell + idCells.join(" "));
     }
     
-    // Table 2: Non-main language slugs
-    const nonMainLanguageSlugs = sortedSlugs.filter(slug => !mainLanguageSlugs.has(slug));
+    // Table 2: Categories without main language assigned
+    const slugsWithoutMainLang = sortedSlugs.filter(slug => {
+      const langMap = translations.wpml[slug];
+      return !langMap[mainLanguage]; // Only include if there's no main language ID
+    });
     
-    if (nonMainLanguageSlugs.length > 0) {
-      console.log(`\n📊 Categories with non-${mainLanguage.toUpperCase()} slugs:`);
+    if (slugsWithoutMainLang.length > 0) {
+      console.log(`\n📊 Categories without ${mainLanguage.toUpperCase()} assigned:`);
       
       // Header row
       const slugHeader = "Slug".padEnd(40);
@@ -102,7 +105,7 @@ function visualizeTranslationRelationships(exportData: ExportData) {
       console.log(slugHeader + langHeaders.join(" "));
       console.log("-".repeat(40 + (langHeaders.length * 9)));
       
-      for (const slug of nonMainLanguageSlugs) {
+      for (const slug of slugsWithoutMainLang) {
         const langMap = translations.wpml[slug];
         
         // Display decoded slug if it contains URL-encoded characters
@@ -175,10 +178,6 @@ function analyzeTranslationCoverage(exportData: ExportData) {
     const coveragePercent = (translatedCount / totalMainCategories) * 100;
     
     console.log(`- ${lang}: ${translatedCount}/${totalMainCategories} categories translated (${coveragePercent.toFixed(1)}%)`);
-    
-    if (untranslatedCount > 0) {
-      console.log(`  Missing translations for ${untranslatedCount} categories`);
-    }
   }
 }
 
