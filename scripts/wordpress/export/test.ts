@@ -15,6 +15,20 @@ interface ExportData {
   data: Record<string, any[]>;
 }
 
+/**
+ * Decodes URL-encoded strings for display in terminal
+ */
+function decodeSlug(slug: string): string {
+  try {
+    // First try to decode as URI component
+    const decoded = decodeURIComponent(slug);
+    return decoded;
+  } catch (error) {
+    // If decoding fails, return the original string
+    return slug;
+  }
+}
+
 function loadData(filePath: string): ExportData {
   const raw = fs.readFileSync(filePath, "utf-8");
   return JSON.parse(raw);
@@ -44,25 +58,84 @@ function visualizeTranslationRelationships(exportData: ExportData) {
   if (translations.wpml && Object.keys(translations.wpml).length > 0) {
     console.log(`Found ${Object.keys(translations.wpml).length} translation groups`);
     
-    // Print table header
-    console.log(
-      "Slug/Group".padEnd(30),
-      mainLanguage.toUpperCase().padEnd(8),
-      ...otherLanguages.map(l => l.toUpperCase().padEnd(8))
-    );
-    console.log("-".repeat(80));
+    // Sort slugs alphabetically
+    const sortedSlugs = Object.keys(translations.wpml).sort();
     
-    // Print each translation group
-    Object.entries(translations.wpml).forEach(([slug, langMap]) => {
-      const row = [
-        slug.padEnd(30),
-        (langMap[mainLanguage] || "-").toString().padEnd(8),
-        ...otherLanguages.map((lang) =>
-          (langMap[lang] || "-").toString().padEnd(8)
-        ),
+    // Table 1: Main language (LT) with all related IDs
+    console.log(`\n📊 Categories with ${mainLanguage.toUpperCase()} translations:`);
+    
+    // Header row
+    const slugHeader = "Slug".padEnd(40);
+    const langHeaders = [mainLanguage.toUpperCase(), ...otherLanguages.map(l => l.toUpperCase())].map(l => l.padEnd(8));
+    console.log(slugHeader + langHeaders.join(" "));
+    console.log("-".repeat(40 + (langHeaders.length * 9)));
+    
+    // Filter slugs that have main language entries
+    const mainLangSlugs = sortedSlugs.filter(slug => translations.wpml[slug][mainLanguage]);
+    
+    for (const slug of mainLangSlugs) {
+      const langMap = translations.wpml[slug];
+      
+      // Display decoded slug if it contains URL-encoded characters
+      let displaySlug = slug;
+      if (slug.includes('%')) {
+        displaySlug = decodeSlug(slug);
+        // Truncate long slugs
+        if (displaySlug.length > 37) {
+          displaySlug = displaySlug.substring(0, 34) + "...";
+        }
+      }
+      
+      // Format the row with proper padding
+      const slugCell = displaySlug.padEnd(40);
+      const idCells = [
+        langMap[mainLanguage].toString().padEnd(8),
+        ...otherLanguages.map(lang => (langMap[lang] || "-").toString().padEnd(8))
       ];
-      console.log(row.join(" "));
+      
+      console.log(slugCell + idCells.join(" "));
+    }
+    
+    // Table 2: Categories without main language (LT) counterpart
+    // Filter slugs that don't have main language entries but have other language entries
+    const nonMainLangSlugs = sortedSlugs.filter(slug => {
+      const langMap = translations.wpml[slug];
+      return !langMap[mainLanguage] && otherLanguages.some(lang => langMap[lang]);
     });
+    
+    if (nonMainLangSlugs.length > 0) {
+      console.log(`\n📊 Categories without ${mainLanguage.toUpperCase()} counterpart:`);
+      
+      // Header row
+      const slugHeader = "Slug".padEnd(40);
+      const langHeaders = otherLanguages.map(l => l.toUpperCase().padEnd(8));
+      console.log(slugHeader + langHeaders.join(" "));
+      console.log("-".repeat(40 + (langHeaders.length * 9)));
+      
+      for (const slug of nonMainLangSlugs) {
+        const langMap = translations.wpml[slug];
+        
+        // Display decoded slug if it contains URL-encoded characters
+        let displaySlug = slug;
+        if (slug.includes('%')) {
+          displaySlug = decodeSlug(slug);
+          // Truncate long slugs
+          if (displaySlug.length > 37) {
+            displaySlug = displaySlug.substring(0, 34) + "...";
+          }
+        }
+        
+        // Format the row with proper padding
+        const slugCell = displaySlug.padEnd(40);
+        const idCells = otherLanguages.map(lang => 
+          (langMap[lang] || "-").toString().padEnd(8)
+        );
+        
+        console.log(slugCell + idCells.join(" "));
+      }
+    } else {
+      console.log("\nAll categories have a main language counterpart.");
+    }
   } else {
     console.log("No translation relationships found in the export data.");
   }
@@ -71,36 +144,6 @@ function visualizeTranslationRelationships(exportData: ExportData) {
 function findCategoryNameById(exportData: ExportData, lang: string, id: number): string {
   const category = exportData.data[lang]?.find(cat => cat.id === id);
   return category ? category.name : `Unknown (ID: ${id})`;
-}
-
-function showDetailedTranslations(exportData: ExportData) {
-  const { translations, meta } = exportData;
-  const mainLanguage = meta.main_language;
-  const otherLanguages = meta.other_languages;
-  
-  console.log("\n📋 Translation Pairs:");
-  
-  if (translations.wpml && Object.keys(translations.wpml).length > 0) {
-    Object.entries(translations.wpml).forEach(([slug, langMap]) => {
-      if (langMap[mainLanguage] && Object.keys(langMap).length > 1) {
-        const mainCategoryId = langMap[mainLanguage];
-        const mainCategoryName = findCategoryNameById(exportData, mainLanguage, mainCategoryId);
-        
-        console.log(`\n${mainCategoryName} (${mainLanguage}, ID: ${mainCategoryId})`);
-        
-        for (const lang of otherLanguages) {
-          if (langMap[lang]) {
-            const translatedName = findCategoryNameById(exportData, lang, langMap[lang]);
-            console.log(`  → ${translatedName} (${lang}, ID: ${langMap[lang]})`);
-          } else {
-            console.log(`  → No translation for ${lang}`);
-          }
-        }
-      }
-    });
-  } else {
-    console.log("No translation relationships found.");
-  }
 }
 
 function analyzeTranslationCoverage(exportData: ExportData) {
@@ -156,7 +199,6 @@ function main() {
     showMetadata(exportData);
     countByLang(exportData);
     visualizeTranslationRelationships(exportData);
-    showDetailedTranslations(exportData);
     analyzeTranslationCoverage(exportData);
   } catch (error) {
     console.error("Error processing export data:", error);
