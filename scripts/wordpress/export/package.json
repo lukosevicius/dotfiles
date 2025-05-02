@@ -1,0 +1,21 @@
+{
+  "name": "wordpress-export-tools",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.4",
+    "@types/node-fetch": "^2.6.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.4"
+  },
+  "scripts": {
+    "export": "ts-node export.ts",
+    "import-wp": "ts-node import.ts",
+    "test": "ts-node test.ts",
+    "delete-wp": "ts-node delete.ts",
+    "migrate": "ts-node main.ts"
+  }
+}

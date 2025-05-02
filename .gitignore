@@ -21,3 +21,5 @@ config/*
 
 # apple
 .DS_Store
+
+node_modules/
