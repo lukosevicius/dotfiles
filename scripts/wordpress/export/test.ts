@@ -61,8 +61,12 @@ function visualizeTranslationRelationships(exportData: ExportData) {
     // Sort slugs alphabetically
     const sortedSlugs = Object.keys(translations.wpml).sort();
     
-    // Table 1: Main language (LT) with all related IDs
-    console.log(`\n📊 Categories with ${mainLanguage.toUpperCase()} translations:`);
+    // Find main language categories to get their slugs
+    const mainLanguageCategories = data[mainLanguage] || [];
+    const mainLanguageSlugs = new Set(mainLanguageCategories.map(cat => cat.slug));
+    
+    // Table 1: Only main language slugs with all related IDs
+    console.log(`\n📊 Categories with ${mainLanguage.toUpperCase()} slugs:`);
     
     // Header row
     const slugHeader = "Slug".padEnd(40);
@@ -70,49 +74,35 @@ function visualizeTranslationRelationships(exportData: ExportData) {
     console.log(slugHeader + langHeaders.join(" "));
     console.log("-".repeat(40 + (langHeaders.length * 9)));
     
-    // Filter slugs that have main language entries
-    const mainLangSlugs = sortedSlugs.filter(slug => translations.wpml[slug][mainLanguage]);
+    // Filter slugs that are in the main language
+    const mainLanguageSlugsList = sortedSlugs.filter(slug => mainLanguageSlugs.has(slug));
     
-    for (const slug of mainLangSlugs) {
+    for (const slug of mainLanguageSlugsList) {
       const langMap = translations.wpml[slug];
       
-      // Display decoded slug if it contains URL-encoded characters
-      let displaySlug = slug;
-      if (slug.includes('%')) {
-        displaySlug = decodeSlug(slug);
-        // Truncate long slugs
-        if (displaySlug.length > 37) {
-          displaySlug = displaySlug.substring(0, 34) + "...";
-        }
-      }
-      
       // Format the row with proper padding
-      const slugCell = displaySlug.padEnd(40);
+      const slugCell = slug.padEnd(40);
       const idCells = [
-        langMap[mainLanguage].toString().padEnd(8),
+        (langMap[mainLanguage] || "-").toString().padEnd(8),
         ...otherLanguages.map(lang => (langMap[lang] || "-").toString().padEnd(8))
       ];
       
       console.log(slugCell + idCells.join(" "));
     }
     
-    // Table 2: Categories without main language (LT) counterpart
-    // Filter slugs that don't have main language entries but have other language entries
-    const nonMainLangSlugs = sortedSlugs.filter(slug => {
-      const langMap = translations.wpml[slug];
-      return !langMap[mainLanguage] && otherLanguages.some(lang => langMap[lang]);
-    });
+    // Table 2: Non-main language slugs
+    const nonMainLanguageSlugs = sortedSlugs.filter(slug => !mainLanguageSlugs.has(slug));
     
-    if (nonMainLangSlugs.length > 0) {
-      console.log(`\n📊 Categories without ${mainLanguage.toUpperCase()} counterpart:`);
+    if (nonMainLanguageSlugs.length > 0) {
+      console.log(`\n📊 Categories with non-${mainLanguage.toUpperCase()} slugs:`);
       
       // Header row
       const slugHeader = "Slug".padEnd(40);
-      const langHeaders = otherLanguages.map(l => l.toUpperCase().padEnd(8));
+      const langHeaders = [mainLanguage.toUpperCase(), ...otherLanguages.map(l => l.toUpperCase())].map(l => l.padEnd(8));
       console.log(slugHeader + langHeaders.join(" "));
       console.log("-".repeat(40 + (langHeaders.length * 9)));
       
-      for (const slug of nonMainLangSlugs) {
+      for (const slug of nonMainLanguageSlugs) {
         const langMap = translations.wpml[slug];
         
         // Display decoded slug if it contains URL-encoded characters
@@ -127,14 +117,13 @@ function visualizeTranslationRelationships(exportData: ExportData) {
         
         // Format the row with proper padding
         const slugCell = displaySlug.padEnd(40);
-        const idCells = otherLanguages.map(lang => 
-          (langMap[lang] || "-").toString().padEnd(8)
-        );
+        const idCells = [
+          (langMap[mainLanguage] || "-").toString().padEnd(8),
+          ...otherLanguages.map(lang => (langMap[lang] || "-").toString().padEnd(8))
+        ];
         
         console.log(slugCell + idCells.join(" "));
       }
-    } else {
-      console.log("\nAll categories have a main language counterpart.");
     }
   } else {
     console.log("No translation relationships found in the export data.");
