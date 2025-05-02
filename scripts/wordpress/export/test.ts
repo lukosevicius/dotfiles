@@ -182,13 +182,147 @@ function analyzeTranslationCoverage(exportData: ExportData) {
   }
 }
 
+/**
+ * Analyze a specific category in depth
+ */
+function analyzeCategory(exportData: ExportData, searchTerm: string) {
+  const { meta, translations, data } = exportData;
+  const mainLanguage = meta.main_language;
+  const otherLanguages = meta.other_languages;
+  const allLanguages = [mainLanguage, ...otherLanguages];
+  
+  console.log(`\n🔍 Analyzing category: "${searchTerm}"`);
+  
+  // Step 1: Find all slugs that match or contain the search term
+  const matchingSlugs = Object.keys(translations.wpml).filter(slug => {
+    // Check if the slug matches or contains the search term
+    if (slug.includes(searchTerm)) return true;
+    
+    // Check if the decoded slug matches or contains the search term
+    if (slug.includes('%')) {
+      const decoded = decodeSlug(slug);
+      if (decoded.includes(searchTerm)) return true;
+    }
+    
+    return false;
+  });
+  
+  if (matchingSlugs.length === 0) {
+    // If no slug matches, try to find categories by name
+    const matchingCategories: Record<string, any[]> = {};
+    
+    for (const lang of allLanguages) {
+      if (!data[lang]) continue;
+      
+      const matches = data[lang].filter(cat => 
+        cat.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cat.slug.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      
+      if (matches.length > 0) {
+        matchingCategories[lang] = matches;
+      }
+    }
+    
+    if (Object.keys(matchingCategories).length === 0) {
+      console.log(`❌ No categories found matching "${searchTerm}"`);
+      return;
+    }
+    
+    console.log(`Found ${Object.values(matchingCategories).flat().length} categories by name/slug:`);
+    
+    for (const [lang, categories] of Object.entries(matchingCategories)) {
+      console.log(`\n${lang.toUpperCase()}:`);
+      for (const cat of categories) {
+        console.log(`- ${cat.name} (slug: ${cat.slug}, ID: ${cat.id})`);
+        
+        // Find translation group for this category
+        for (const [slug, langMap] of Object.entries(translations.wpml)) {
+          if (langMap[lang] === cat.id) {
+            console.log(`  Translation group: ${slug}`);
+            console.log(`  Translations:`);
+            
+            for (const [transLang, transId] of Object.entries(langMap)) {
+              if (transLang !== lang) {
+                const transName = findCategoryNameById(exportData, transLang, transId as number);
+                console.log(`    - ${transLang}: ${transName} (ID: ${transId})`);
+              }
+            }
+            
+            break;
+          }
+        }
+      }
+    }
+    
+    return;
+  }
+  
+  // Display detailed information for each matching slug
+  console.log(`Found ${matchingSlugs.length} matching translation groups:`);
+  
+  for (const slug of matchingSlugs) {
+    const langMap = translations.wpml[slug];
+    const displaySlug = slug.includes('%') ? `${decodeSlug(slug)} (${slug})` : slug;
+    
+    console.log(`\n📎 Translation Group: ${displaySlug}`);
+    console.log(`IDs by language:`);
+    
+    for (const lang of allLanguages) {
+      const id = langMap[lang];
+      if (id) {
+        const category = data[lang]?.find(cat => cat.id === id);
+        if (category) {
+          console.log(`- ${lang.toUpperCase()}: ${category.name} (ID: ${id}, slug: ${category.slug})`);
+          
+          // Display additional category information
+          if (category.description) {
+            const shortDesc = category.description.length > 50 
+              ? category.description.substring(0, 47) + "..." 
+              : category.description;
+            console.log(`  Description: ${shortDesc}`);
+          }
+          
+          if (category.parent) {
+            const parentCategory = data[lang]?.find(cat => cat.id === category.parent);
+            const parentName = parentCategory ? parentCategory.name : `Unknown (ID: ${category.parent})`;
+            console.log(`  Parent: ${parentName} (ID: ${category.parent})`);
+          }
+          
+          if (category.image) {
+            console.log(`  Has image: Yes (ID: ${category.image.id})`);
+          }
+          
+          if (category.count !== undefined) {
+            console.log(`  Product count: ${category.count}`);
+          }
+        } else {
+          console.log(`- ${lang.toUpperCase()}: Unknown category (ID: ${id})`);
+        }
+      } else {
+        console.log(`- ${lang.toUpperCase()}: No translation`);
+      }
+    }
+  }
+}
+
 function main() {
   try {
     const exportData = loadData(config.inputFile);
-    showMetadata(exportData);
-    countByLang(exportData);
-    visualizeTranslationRelationships(exportData);
-    analyzeTranslationCoverage(exportData);
+    
+    // Check if a specific category was requested
+    const searchTerm = process.argv[2];
+    
+    if (searchTerm) {
+      // If a search term is provided, only analyze that category
+      analyzeCategory(exportData, searchTerm);
+    } else {
+      // Otherwise run the full test
+      showMetadata(exportData);
+      countByLang(exportData);
+      visualizeTranslationRelationships(exportData);
+      analyzeTranslationCoverage(exportData);
+    }
   } catch (error) {
     console.error("Error processing export data:", error);
   }
