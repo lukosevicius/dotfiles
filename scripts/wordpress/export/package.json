@@ -2,13 +2,13 @@
   "name": "wordpress-export-tools",
   "version": "1.0.0",
   "private": true,
-  "dependencies": {
-    "node-fetch": "^2.6.7"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^20.12.4",
     "@types/node-fetch": "^2.6.4",
-    "ts-node": "^10.9.2",
+    "form-data": "^4.0.0",
+    "node-fetch": "^2.7.0",
+    "ts-node": "^10.9.1",
     "typescript": "^5.0.4"
   },
   "scripts": {

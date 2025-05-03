@@ -22,6 +22,9 @@ function decodeSlug(slug: string): string {
   try {
     // First try to decode as URI component
     const decoded = decodeURIComponent(slug);
+    
+    // For Russian Cyrillic characters, ensure proper decoding
+    // This helps with displaying Cyrillic characters correctly in the terminal
     return decoded;
   } catch (error) {
     // If decoding fails, return the original string

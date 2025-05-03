@@ -5,14 +5,14 @@ export interface Config {
   // Common settings
   mainLanguage: string;
   otherLanguages: string[];
-  
+
   // Export settings
   exportBaseUrl: string;
   exportUsername: string;
   exportPassword: string;
   outputDir: string;
   perPage: number;
-  
+
   // Import settings
   importBaseUrl: string;
   importUsername: string;
@@ -25,14 +25,16 @@ const config: Config = {
   // Common settings
   mainLanguage: "lt",
   otherLanguages: ["en", "lv", "ru", "de"],
-  
+
   // Export settings
-  exportBaseUrl: "http://localhost:10009",
+  // exportBaseUrl: "http://localhost:10009",
+  exportBaseUrl: "http://localhost:10054",
   exportUsername: "mantas",
-  exportPassword: "SxTp K7LH LVwx 7eUr Y1Mq OSdE",
+  // exportPassword: "SxTp K7LH LVwx 7eUr Y1Mq OSdE",
+  exportPassword: "rL5x 8nW9 nJR4 IOCv QuSi 7jlx",
   outputDir: "/Users/mantas/Downloads/export",
   perPage: 100, // Number of items per page (max 100 for WooCommerce API)
-  
+
   // Import settings
   importBaseUrl: "http://localhost:10038",
   importUsername: "mantas",

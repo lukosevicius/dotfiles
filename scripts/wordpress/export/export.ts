@@ -32,6 +32,16 @@ async function fetchJSON(url: string): Promise<any> {
   return await res.json();
 }
 
+async function getSiteName(baseUrl: string): Promise<string> {
+  try {
+    const response = await fetchJSON(`${baseUrl}/wp-json`);
+    return response.name || "Unknown Site";
+  } catch (error) {
+    console.error("Error fetching site information:", error);
+    return "Unknown Site";
+  }
+}
+
 async function fetchAllPages(baseUrl: string): Promise<any[]> {
   let page = 1;
   let allData: any[] = [];
@@ -62,6 +72,10 @@ async function exportCategories(): Promise<void> {
     fs.mkdirSync(config.outputDir, { recursive: true });
   }
 
+  // Get site name
+  const siteName = await getSiteName(config.exportBaseUrl);
+  
+  console.log(`🔄 Exporting from: ${config.exportBaseUrl} (${siteName})`);
   console.log("🔍 Fetching categories from WooCommerce API...");
   
   // Step 1: Fetch all categories in all languages to get translation information
@@ -92,7 +106,7 @@ async function exportCategories(): Promise<void> {
   const categoriesByLang: Record<string, any[]> = {};
   const translationMap: Record<string, Record<string, number>> = {};
 
-  // Initialize language arrays
+  // Initialize language buckets
   categoriesByLang[config.mainLanguage] = [];
   for (const lang of config.otherLanguages) {
     categoriesByLang[lang] = [];
@@ -101,10 +115,15 @@ async function exportCategories(): Promise<void> {
   // Process each category
   for (const category of allCategories) {
     const categoryLang = category.lang || config.mainLanguage;
-
-    // Add to appropriate language array
+    
+    // Filter out yoast_head and yoast_head_json fields
+    const filteredCategory = { ...category };
+    delete filteredCategory.yoast_head;
+    delete filteredCategory.yoast_head_json;
+    
+    // Add to the appropriate language bucket
     if (categoriesByLang[categoryLang]) {
-      categoriesByLang[categoryLang].push(category);
+      categoriesByLang[categoryLang].push(filteredCategory);
     }
 
     // Process translation information if available
