@@ -66,6 +66,22 @@ async function fetchAllPages(baseUrl: string): Promise<any[]> {
   return allData;
 }
 
+/**
+ * Get flag emoji for language code
+ */
+function getFlagEmoji(langCode: string): string {
+  const flagMap: Record<string, string> = {
+    'lt': '🇱🇹', // Lithuania
+    'en': '🇬🇧', // United Kingdom
+    'lv': '🇱🇻', // Latvia
+    'ru': '🇷🇺', // Russia
+    'de': '🇩🇪', // Germany
+    // Add more as needed
+  };
+  
+  return flagMap[langCode] || '';
+}
+
 async function exportCategories(): Promise<void> {
   // Ensure output directory exists
   if (!fs.existsSync(config.outputDir)) {
@@ -148,14 +164,16 @@ async function exportCategories(): Promise<void> {
     }
   }
 
-  // Count categories by language
+  console.log("\n📊 Export Statistics:");
+  console.log(`Total categories: ${Object.values(categoriesByLang).flat().length}`);
+  
+  console.log("\nBy language:");
   for (const [lang, categories] of Object.entries(categoriesByLang)) {
-    console.log(`- ${lang}: ${categories.length} categories`);
+    const flag = getFlagEmoji(lang);
+    console.log(`- ${flag} ${lang}: ${categories.length}`);
   }
-
-  // Check if we found any translation relationships
-  const translationCount = Object.keys(translationMap).length;
-  console.log(`Found ${translationCount} translation relationships`);
+  
+  console.log(`\nTranslation relationships: ${Object.keys(translationMap).length}`);
 
   // Save to file with translation relationships
   const exportData: ExportData = {

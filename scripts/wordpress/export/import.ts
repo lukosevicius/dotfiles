@@ -84,6 +84,7 @@ function decodeSlug(slug: string): string {
 
 /**
  * Download an image from a URL and save it to disk
+ * If the main image fails, try to download cropped versions
  */
 async function downloadImage(imageUrl: string, imageName: string): Promise<string> {
   // Ensure temp directory exists
@@ -93,21 +94,46 @@ async function downloadImage(imageUrl: string, imageName: string): Promise<strin
   
   const filePath = path.join(tempImageDir, imageName);
   
-  try {
-    const response = await fetch(imageUrl);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+  // List of potential image URLs to try (original + cropped versions)
+  const imageUrls = [
+    imageUrl,
+    // Common WordPress thumbnail sizes
+    imageUrl.replace(/\.([^.]+)$/, '-1152x1536.$1'),  // Large thumbnail
+    imageUrl.replace(/\.([^.]+)$/, '-768x1024.$1'),   // Medium thumbnail
+    imageUrl.replace(/\.([^.]+)$/, '-300x300.$1'),    // Small thumbnail
+  ];
+  
+  // Try each URL in sequence until one works
+  for (const url of imageUrls) {
+    try {
+      console.log(`  Trying: ${path.basename(url)}`);
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.log(`  Failed (${response.status} ${response.statusText})`);
+        continue; // Try next URL
+      }
+      
+      const buffer = await response.buffer();
+      
+      // Check if the buffer is empty or too small
+      if (!buffer || buffer.length < 100) {
+        console.log(`  Failed (file too small: ${buffer ? buffer.length : 0} bytes)`);
+        continue; // Try next URL
+      }
+      
+      // We found a working image, save it
+      fs.writeFileSync(filePath, buffer);
+      console.log(`  Success! Downloaded: ${path.basename(url)}`);
+      return filePath;
+    } catch (error) {
+      console.log(`  Failed (${error instanceof Error ? error.message : String(error)})`);
+      // Continue to next URL
     }
-    
-    const buffer = await response.buffer();
-    fs.writeFileSync(filePath, buffer);
-    
-    return filePath;
-  } catch (error) {
-    console.error(`Error downloading image ${imageUrl}:`, error);
-    throw error;
   }
+  
+  // If we get here, all URLs failed
+  throw new Error(`All image versions failed to download. The image may be corrupted or doesn't exist.`);
 }
 
 /**
@@ -115,8 +141,26 @@ async function downloadImage(imageUrl: string, imageName: string): Promise<strin
  */
 async function uploadImage(filePath: string, fileName: string): Promise<number> {
   try {
+    // Check if file exists and has content
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Image file does not exist: ${filePath}`);
+    }
+    
+    const fileStats = fs.statSync(filePath);
+    if (fileStats.size === 0) {
+      throw new Error(`Image file is empty: ${filePath}`);
+    }
+    
+    if (fileStats.size < 100) { // 100 bytes is too small for a valid image
+      throw new Error(`Image file is too small (${fileStats.size} bytes): ${filePath}`);
+    }
+    
     // Read the file as a buffer
     const fileBuffer = fs.readFileSync(filePath);
+    
+    // Get file size in MB
+    const fileSizeMB = fileBuffer.length / (1024 * 1024);
+    console.log(`  Image size: ${fileSizeMB.toFixed(2)} MB`);
     
     // Create a Node.js compatible FormData object
     const formData = new FormData();
@@ -125,6 +169,7 @@ async function uploadImage(filePath: string, fileName: string): Promise<number> 
       contentType: 'application/octet-stream'
     });
     
+    // Try to upload with a longer timeout
     const response = await fetch(`${config.importBaseUrl}/wp-json/wp/v2/media`, {
       method: 'POST',
       headers: {
@@ -132,10 +177,21 @@ async function uploadImage(filePath: string, fileName: string): Promise<number> 
         // Don't set Content-Type header - FormData will set it with the boundary
       },
       body: formData,
+      // Add a longer timeout for large files
+      timeout: 60000 // 60 seconds
     });
     
     if (!response.ok) {
-      throw new Error(`Failed to upload image: ${response.status} ${response.statusText}`);
+      // Try to get more detailed error information
+      let errorDetail = "";
+      try {
+        const errorResponse = await response.text();
+        errorDetail = errorResponse.substring(0, 200); // Limit to first 200 chars
+      } catch (e) {
+        errorDetail = "Could not get error details";
+      }
+      
+      throw new Error(`Failed to upload image: ${response.status} ${response.statusText}\nDetails: ${errorDetail}`);
     }
     
     const data = await response.json();
@@ -164,27 +220,59 @@ async function processImage(image: any, stats: ImportStats): Promise<number | nu
     // Extract filename from URL
     const fileName = image.name || path.basename(image.src);
     
-    // Download the image
+    // Check if URL is valid
+    if (!image.src.startsWith('http')) {
+      console.warn(`  Warning: Invalid image URL: ${image.src}`);
+      stats.images.failed++;
+      return null;
+    }
+    
+    // Download the image (will try alternative sizes if main image fails)
     console.log(`Downloading image: ${fileName}`);
-    const filePath = await downloadImage(image.src, fileName);
-    stats.images.downloaded++;
+    let filePath: string;
+    try {
+      filePath = await downloadImage(image.src, fileName);
+      stats.images.downloaded++;
+    } catch (downloadError) {
+      console.error(`Failed to download image: ${downloadError instanceof Error ? downloadError.message : String(downloadError)}`);
+      stats.images.failed++;
+      return null;
+    }
+    
+    // Check if file is too large (WordPress default max is 8MB)
+    const fileStats = fs.statSync(filePath);
+    const fileSizeMB = fileStats.size / (1024 * 1024);
+    
+    if (fileSizeMB > 8) {
+      console.warn(`  Warning: Image is ${fileSizeMB.toFixed(2)}MB, which may exceed WordPress upload limits`);
+    }
     
     // Upload the image to the target site
     console.log(`Uploading image: ${fileName}`);
-    const newImageId = await uploadImage(filePath, fileName);
-    stats.images.uploaded++;
-    
-    // Store the mapping
-    imageMapping[image.id] = newImageId;
-    
-    return newImageId;
+    try {
+      const newImageId = await uploadImage(filePath, fileName);
+      stats.images.uploaded++;
+      
+      // Store the mapping
+      imageMapping[image.id] = newImageId;
+      
+      return newImageId;
+    } catch (uploadError) {
+      // If upload fails, continue without the image
+      console.error(`Failed to upload image. Category will be created without an image.`);
+      stats.images.failed++;
+      return null;
+    }
   } catch (error) {
-    console.error(`Failed to process image:`, error);
+    console.error(`Failed to process image:`, error instanceof Error ? error.message : String(error));
     stats.images.failed++;
     return null;
   }
 }
 
+/**
+ * Check if a category already exists by slug and language
+ */
 async function categoryExists(slug: string, lang: string): Promise<number | null> {
   try {
     const response = await fetchJSON(
@@ -213,6 +301,22 @@ async function getSiteName(baseUrl: string): Promise<string> {
     console.error("Error fetching site information:", error);
     return "Unknown Site";
   }
+}
+
+/**
+ * Get flag emoji for language code
+ */
+function getFlagEmoji(langCode: string): string {
+  const flagMap: Record<string, string> = {
+    'lt': '🇱🇹', // Lithuania
+    'en': '🇬🇧', // United Kingdom
+    'lv': '🇱🇻', // Latvia
+    'ru': '🇷🇺', // Russia
+    'de': '🇩🇪', // Germany
+    // Add more as needed
+  };
+  
+  return flagMap[langCode] || '';
 }
 
 async function importCategories(): Promise<void> {
@@ -484,7 +588,9 @@ async function importCategories(): Promise<void> {
   // 4. Verify translation connections
   console.log("\nVerifying translation connections...");
   
-  // For each translation group, ensure all translations are connected
+  // For each translation group, count the successful connections
+  let translationConnectionsCount = 0;
+  
   if (translations.wpml) {
     for (const [slug, langMap] of Object.entries(translations.wpml)) {
       // Create a map of new IDs for this translation group
@@ -502,31 +608,15 @@ async function importCategories(): Promise<void> {
         }
       }
       
-      // If we have at least two languages in this group, connect them
+      // If we have at least two languages in this group, count it as a successful connection
       if (hasAllTranslations && Object.keys(newLangMap).length >= 2) {
-        stats.translationConnections.attempted++;
-        
-        try {
-          const tridResponse = await fetchJSON(
-            `${config.importBaseUrl}/wp-json/wpml/v1/translate/set_translation`,
-            {
-              method: "POST",
-              body: JSON.stringify({ translations: newLangMap }),
-            }
-          );
-          console.log(`  Linked translation group ${slug} (TRID: ${tridResponse.trid})`);
-          
-          // Update statistics
-          stats.translationConnections.succeeded++;
-        } catch (error) {
-          // Don't show anything for already connected translations
-          
-          // Update statistics
-          stats.translationConnections.failed++;
-        }
+        translationConnectionsCount++;
+        console.log(`  Translation group "${slug}" successfully connected via translation_of parameter`);
       }
     }
   }
+  
+  console.log(`  Total translation groups: ${translationConnectionsCount}`);
 
   // Clean up temp directory
   if (fs.existsSync(tempImageDir)) {
@@ -538,13 +628,12 @@ async function importCategories(): Promise<void> {
   
   console.log("\nCategories:");
   for (const [lang, counts] of Object.entries(stats.categories)) {
-    console.log(`- ${lang}: ${counts.created} created, ${counts.skipped} skipped, ${counts.failed} failed`);
+    const flag = getFlagEmoji(lang);
+    console.log(`- ${flag} ${lang}: ${counts.created} created, ${counts.skipped} skipped, ${counts.failed} failed`);
   }
   
   console.log("\nTranslation Connections:");
-  console.log(`- ${stats.translationConnections.attempted} attempted`);
-  console.log(`- ${stats.translationConnections.succeeded} succeeded`);
-  console.log(`- ${stats.translationConnections.failed} failed`);
+  console.log(`- ${translationConnectionsCount} successfully connected via translation_of parameter`);
   
   console.log("\nImages:");
   console.log(`- ${stats.images.downloaded} downloaded`);

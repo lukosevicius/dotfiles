@@ -24,21 +24,22 @@ export interface Config {
 const config: Config = {
   // Common settings
   mainLanguage: "lt",
+  // otherLanguages: ["de"],
   otherLanguages: ["en", "lv", "ru", "de"],
 
   // Export settings
   // exportBaseUrl: "http://localhost:10009",
-  exportBaseUrl: "http://localhost:10054",
+  exportBaseUrl: "http://7in-with-products.local",
   exportUsername: "mantas",
   // exportPassword: "SxTp K7LH LVwx 7eUr Y1Mq OSdE",
-  exportPassword: "rL5x 8nW9 nJR4 IOCv QuSi 7jlx",
+  exportPassword: "gGnU l862 pwyy 0GZh YATr kO4H",
   outputDir: "/Users/mantas/Downloads/export",
   perPage: 100, // Number of items per page (max 100 for WooCommerce API)
 
   // Import settings
-  importBaseUrl: "http://localhost:10038",
+  importBaseUrl: "http://7in-blocksy.local",
   importUsername: "mantas",
-  importPassword: "MKe1 Cgcy y40g Bqse 2t60 WAzb",
+  importPassword: "sGse G7ll Hd6Z kToQ 8bXK VePC",
   inputFile: "/Users/mantas/Downloads/export/exported-categories.json",
   skipExisting: true, // Skip categories that already exist
 };

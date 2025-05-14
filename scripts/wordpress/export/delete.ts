@@ -53,6 +53,22 @@ async function fetchAllPages(baseUrl: string): Promise<any[]> {
   return allData;
 }
 
+/**
+ * Get flag emoji for language code
+ */
+function getFlagEmoji(langCode: string): string {
+  const flagMap: Record<string, string> = {
+    'lt': '🇱🇹', // Lithuania
+    'en': '🇬🇧', // United Kingdom
+    'lv': '🇱🇻', // Latvia
+    'ru': '🇷🇺', // Russia
+    'de': '🇩🇪', // Germany
+    // Add more as needed
+  };
+  
+  return flagMap[langCode] || '';
+}
+
 async function deleteCategory(categoryId: number, lang: string): Promise<boolean> {
   try {
     // Force parameter ensures the category is deleted even if it has children
@@ -98,8 +114,14 @@ async function deleteAllCategories(): Promise<void> {
   for (const category of allCategories) {
     const lang = category.lang || config.mainLanguage;
     
+    // Ensure the language exists in both objects
     if (!categoriesByLang[lang]) {
       categoriesByLang[lang] = [];
+    }
+    
+    // Make sure stats.byLanguage has an entry for this language
+    if (!stats.byLanguage[lang]) {
+      stats.byLanguage[lang] = { total: 0, deleted: 0, failed: 0 };
     }
     
     categoriesByLang[lang].push(category);
@@ -109,7 +131,8 @@ async function deleteAllCategories(): Promise<void> {
   // Display categories by language
   console.log("\nCategories by language:");
   for (const [lang, categories] of Object.entries(categoriesByLang)) {
-    console.log(`- ${lang}: ${categories.length} categories`);
+    const flag = getFlagEmoji(lang);
+    console.log(`- ${flag} ${lang}: ${categories.length} categories`);
   }
   
   // Delete categories for each language
@@ -142,15 +165,12 @@ async function deleteAllCategories(): Promise<void> {
   
   // Print deletion statistics
   console.log("\n📊 Deletion Statistics:");
-  console.log(`Total categories processed: ${stats.total}`);
-  console.log(`Successfully deleted: ${stats.deleted}`);
-  console.log(`Failed to delete: ${stats.failed}`);
+  console.log(`Total: ${stats.deleted}/${stats.total} deleted, ${stats.failed} failed`);
   
   console.log("\nBy language:");
   for (const [lang, langStats] of Object.entries(stats.byLanguage)) {
-    if (langStats.total > 0) {
-      console.log(`- ${lang}: ${langStats.deleted}/${langStats.total} deleted, ${langStats.failed} failed`);
-    }
+    const flag = getFlagEmoji(lang);
+    console.log(`- ${flag} ${lang}: ${langStats.deleted}/${langStats.total} deleted, ${langStats.failed} failed`);
   }
   
   console.log("\n✅ Deletion process completed");
