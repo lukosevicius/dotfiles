@@ -42,3 +42,5 @@ alias showip="ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'"
 alias h="history | fzf"
 
 alias sizes="du -sh * .[^.]* 2>/dev/null | sort -hr"
+
+alias wpp='cd /Users/mantas/dotfiles/scripts/wordpress/wpp && yarn ts-node wpp.ts'
