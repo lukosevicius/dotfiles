@@ -3,6 +3,7 @@ import path from "path";
 import fetch from "node-fetch";
 import FormData from "form-data";
 import config from "./config";
+import { getFlagEmoji } from "./utils/language";
 
 // Type for the export data structure
 interface ExportData {
@@ -18,11 +19,14 @@ interface ExportData {
 }
 
 interface ImportStats {
-  categories: Record<string, {
-    created: number;
-    skipped: number;
-    failed: number;
-  }>;
+  categories: Record<
+    string,
+    {
+      created: number;
+      skipped: number;
+      failed: number;
+    }
+  >;
   translationConnections: {
     attempted: number;
     succeeded: number;
@@ -86,101 +90,123 @@ function decodeSlug(slug: string): string {
  * Download an image from a URL and save it to disk
  * If the main image fails, try to download cropped versions
  */
-async function downloadImage(imageUrl: string, imageName: string): Promise<string> {
+async function downloadImage(
+  imageUrl: string,
+  imageName: string
+): Promise<string> {
   // Ensure temp directory exists
   if (!fs.existsSync(tempImageDir)) {
     fs.mkdirSync(tempImageDir, { recursive: true });
   }
-  
+
   const filePath = path.join(tempImageDir, imageName);
-  
+
   // List of potential image URLs to try (original + cropped versions)
   const imageUrls = [
     imageUrl,
     // Common WordPress thumbnail sizes
-    imageUrl.replace(/\.([^.]+)$/, '-1152x1536.$1'),  // Large thumbnail
-    imageUrl.replace(/\.([^.]+)$/, '-768x1024.$1'),   // Medium thumbnail
-    imageUrl.replace(/\.([^.]+)$/, '-300x300.$1'),    // Small thumbnail
+    imageUrl.replace(/\.([^.]+)$/, "-1152x1536.$1"), // Large thumbnail
+    imageUrl.replace(/\.([^.]+)$/, "-768x1024.$1"), // Medium thumbnail
+    imageUrl.replace(/\.([^.]+)$/, "-300x300.$1"), // Small thumbnail
   ];
-  
+
   // Try each URL in sequence until one works
   for (const url of imageUrls) {
     try {
       console.log(`  Trying: ${path.basename(url)}`);
       const response = await fetch(url);
-      
+
       if (!response.ok) {
         console.log(`  Failed (${response.status} ${response.statusText})`);
         continue; // Try next URL
       }
-      
+
       const buffer = await response.buffer();
-      
+
       // Check if the buffer is empty or too small
       if (!buffer || buffer.length < 100) {
-        console.log(`  Failed (file too small: ${buffer ? buffer.length : 0} bytes)`);
+        console.log(
+          `  Failed (file too small: ${buffer ? buffer.length : 0} bytes)`
+        );
         continue; // Try next URL
       }
-      
+
       // We found a working image, save it
       fs.writeFileSync(filePath, buffer);
       console.log(`  Success! Downloaded: ${path.basename(url)}`);
       return filePath;
     } catch (error) {
-      console.log(`  Failed (${error instanceof Error ? error.message : String(error)})`);
+      console.log(
+        `  Failed (${error instanceof Error ? error.message : String(error)})`
+      );
       // Continue to next URL
     }
   }
-  
+
   // If we get here, all URLs failed
-  throw new Error(`All image versions failed to download. The image may be corrupted or doesn't exist.`);
+  throw new Error(
+    `All image versions failed to download. The image may be corrupted or doesn't exist.`
+  );
 }
 
 /**
  * Upload an image to WordPress and return the media ID
  */
-async function uploadImage(filePath: string, fileName: string): Promise<number> {
+async function uploadImage(
+  filePath: string,
+  fileName: string
+): Promise<number> {
   try {
     // Check if file exists and has content
     if (!fs.existsSync(filePath)) {
       throw new Error(`Image file does not exist: ${filePath}`);
     }
-    
+
     const fileStats = fs.statSync(filePath);
     if (fileStats.size === 0) {
       throw new Error(`Image file is empty: ${filePath}`);
     }
-    
-    if (fileStats.size < 100) { // 100 bytes is too small for a valid image
-      throw new Error(`Image file is too small (${fileStats.size} bytes): ${filePath}`);
+
+    if (fileStats.size < 100) {
+      // 100 bytes is too small for a valid image
+      throw new Error(
+        `Image file is too small (${fileStats.size} bytes): ${filePath}`
+      );
     }
-    
+
     // Read the file as a buffer
     const fileBuffer = fs.readFileSync(filePath);
-    
+
     // Get file size in MB
     const fileSizeMB = fileBuffer.length / (1024 * 1024);
     console.log(`  Image size: ${fileSizeMB.toFixed(2)} MB`);
-    
+
     // Create a Node.js compatible FormData object
     const formData = new FormData();
-    formData.append('file', fileBuffer, {
+    formData.append("file", fileBuffer, {
       filename: fileName,
-      contentType: 'application/octet-stream'
+      contentType: "application/octet-stream",
     });
-    
+
     // Try to upload with a longer timeout
-    const response = await fetch(`${config.importBaseUrl}/wp-json/wp/v2/media`, {
-      method: 'POST',
-      headers: {
-        Authorization: "Basic " + Buffer.from(`${config.importUsername}:${config.importPassword}`).toString("base64"),
-        // Don't set Content-Type header - FormData will set it with the boundary
-      },
-      body: formData,
-      // Add a longer timeout for large files
-      timeout: 60000 // 60 seconds
-    });
-    
+    const response = await fetch(
+      `${config.importBaseUrl}/wp-json/wp/v2/media`,
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            "Basic " +
+            Buffer.from(
+              `${config.importUsername}:${config.importPassword}`
+            ).toString("base64"),
+          // Don't set Content-Type header - FormData will set it with the boundary
+        },
+        body: formData,
+        // Add a longer timeout for large files
+        timeout: 60000, // 60 seconds
+      }
+    );
+
     if (!response.ok) {
       // Try to get more detailed error information
       let errorDetail = "";
@@ -190,10 +216,12 @@ async function uploadImage(filePath: string, fileName: string): Promise<number> 
       } catch (e) {
         errorDetail = "Could not get error details";
       }
-      
-      throw new Error(`Failed to upload image: ${response.status} ${response.statusText}\nDetails: ${errorDetail}`);
+
+      throw new Error(
+        `Failed to upload image: ${response.status} ${response.statusText}\nDetails: ${errorDetail}`
+      );
     }
-    
+
     const data = await response.json();
     return data.id;
   } catch (error) {
@@ -205,28 +233,31 @@ async function uploadImage(filePath: string, fileName: string): Promise<number> 
 /**
  * Process an image - download from source and upload to target
  */
-async function processImage(image: any, stats: ImportStats): Promise<number | null> {
+async function processImage(
+  image: any,
+  stats: ImportStats
+): Promise<number | null> {
   if (!image || !image.src) {
     return null;
   }
-  
+
   // Check if we've already processed this image
   if (imageMapping[image.id]) {
     stats.images.skipped++;
     return imageMapping[image.id];
   }
-  
+
   try {
     // Extract filename from URL
     const fileName = image.name || path.basename(image.src);
-    
+
     // Check if URL is valid
-    if (!image.src.startsWith('http')) {
+    if (!image.src.startsWith("http")) {
       console.warn(`  Warning: Invalid image URL: ${image.src}`);
       stats.images.failed++;
       return null;
     }
-    
+
     // Download the image (will try alternative sizes if main image fails)
     console.log(`Downloading image: ${fileName}`);
     let filePath: string;
@@ -234,37 +265,52 @@ async function processImage(image: any, stats: ImportStats): Promise<number | nu
       filePath = await downloadImage(image.src, fileName);
       stats.images.downloaded++;
     } catch (downloadError) {
-      console.error(`Failed to download image: ${downloadError instanceof Error ? downloadError.message : String(downloadError)}`);
+      console.error(
+        `Failed to download image: ${
+          downloadError instanceof Error
+            ? downloadError.message
+            : String(downloadError)
+        }`
+      );
       stats.images.failed++;
       return null;
     }
-    
+
     // Check if file is too large (WordPress default max is 8MB)
     const fileStats = fs.statSync(filePath);
     const fileSizeMB = fileStats.size / (1024 * 1024);
-    
+
     if (fileSizeMB > 8) {
-      console.warn(`  Warning: Image is ${fileSizeMB.toFixed(2)}MB, which may exceed WordPress upload limits`);
+      console.warn(
+        `  Warning: Image is ${fileSizeMB.toFixed(
+          2
+        )}MB, which may exceed WordPress upload limits`
+      );
     }
-    
+
     // Upload the image to the target site
     console.log(`Uploading image: ${fileName}`);
     try {
       const newImageId = await uploadImage(filePath, fileName);
       stats.images.uploaded++;
-      
+
       // Store the mapping
       imageMapping[image.id] = newImageId;
-      
+
       return newImageId;
     } catch (uploadError) {
       // If upload fails, continue without the image
-      console.error(`Failed to upload image. Category will be created without an image.`);
+      console.error(
+        `Failed to upload image. Category will be created without an image.`
+      );
       stats.images.failed++;
       return null;
     }
   } catch (error) {
-    console.error(`Failed to process image:`, error instanceof Error ? error.message : String(error));
+    console.error(
+      `Failed to process image:`,
+      error instanceof Error ? error.message : String(error)
+    );
     stats.images.failed++;
     return null;
   }
@@ -273,7 +319,10 @@ async function processImage(image: any, stats: ImportStats): Promise<number | nu
 /**
  * Check if a category already exists by slug and language
  */
-async function categoryExists(slug: string, lang: string): Promise<number | null> {
+async function categoryExists(
+  slug: string,
+  lang: string
+): Promise<number | null> {
   try {
     const response = await fetchJSON(
       `${config.importBaseUrl}/wp-json/wc/v3/products/categories?slug=${slug}&lang=${lang}`
@@ -303,21 +352,7 @@ async function getSiteName(baseUrl: string): Promise<string> {
   }
 }
 
-/**
- * Get flag emoji for language code
- */
-function getFlagEmoji(langCode: string): string {
-  const flagMap: Record<string, string> = {
-    'lt': '🇱🇹', // Lithuania
-    'en': '🇬🇧', // United Kingdom
-    'lv': '🇱🇻', // Latvia
-    'ru': '🇷🇺', // Russia
-    'de': '🇩🇪', // Germany
-    // Add more as needed
-  };
-  
-  return flagMap[langCode] || '';
-}
+// getFlagEmoji function is now imported from ../utils/language
 
 async function importCategories(): Promise<void> {
   // Initialize statistics
@@ -333,7 +368,7 @@ async function importCategories(): Promise<void> {
       uploaded: 0,
       failed: 0,
       skipped: 0,
-    }
+    },
   };
 
   // Read the export file
@@ -349,7 +384,11 @@ async function importCategories(): Promise<void> {
   const siteName = await getSiteName(config.importBaseUrl);
 
   console.log(`🔄 Importing to: ${config.importBaseUrl} (${siteName})`);
-  console.log(`Main language: ${mainLanguage}, Other languages: ${otherLanguages.join(", ")}`);
+  console.log(
+    `Main language: ${mainLanguage}, Other languages: ${otherLanguages.join(
+      ", "
+    )}`
+  );
 
   // Initialize ID mapping for each language
   idMapping[mainLanguage] = {};
@@ -362,27 +401,29 @@ async function importCategories(): Promise<void> {
   // 1. Import main language categories first
   console.log(`\nImporting main language categories (${mainLanguage})...`);
   for (const category of data[mainLanguage]) {
-    process.stdout.write(`Processing "${category.name}" (${decodeSlug(category.slug)})... `);
-    
+    process.stdout.write(
+      `Processing "${category.name}" (${decodeSlug(category.slug)})... `
+    );
+
     // Check if category already exists
     const existingId = await categoryExists(category.slug, mainLanguage);
     if (existingId && config.skipExisting) {
       // Update statistics
       stats.categories[mainLanguage].skipped++;
-      
+
       // Store ID mapping for later use
       idMapping[mainLanguage][category.id] = existingId;
       console.log(`SKIPPED (ID: ${existingId})`);
       continue;
     }
-    
+
     try {
       // Process image if present
       let newImageId = null;
       if (category.image) {
         newImageId = await processImage(category.image, stats);
       }
-      
+
       // Create category
       const response = await fetchJSON(
         `${config.importBaseUrl}/wp-json/wc/v3/products/categories?lang=${mainLanguage}`,
@@ -400,14 +441,16 @@ async function importCategories(): Promise<void> {
 
       // Store ID mapping for later use
       idMapping[mainLanguage][category.id] = response.id;
-      
+
       // Update statistics
       stats.categories[mainLanguage].created++;
-      
+
       console.log(`CREATED (ID: ${response.id})`);
     } catch (error) {
-      console.log(`FAILED (${error instanceof Error ? error.message : String(error)})`);
-      
+      console.log(
+        `FAILED (${error instanceof Error ? error.message : String(error)})`
+      );
+
       // Update statistics
       stats.categories[mainLanguage].failed++;
     }
@@ -421,26 +464,28 @@ async function importCategories(): Promise<void> {
     }
 
     console.log(`\nImporting translations for ${lang}...`);
-    
+
     for (const category of data[lang]) {
-      process.stdout.write(`Processing "${category.name}" (${decodeSlug(category.slug)})... `);
-      
+      process.stdout.write(
+        `Processing "${category.name}" (${decodeSlug(category.slug)})... `
+      );
+
       // Check if category already exists
       const existingId = await categoryExists(category.slug, lang);
       if (existingId && config.skipExisting) {
         // Update statistics
         stats.categories[lang].skipped++;
-        
+
         // Store ID mapping for later use
         idMapping[lang][category.id] = existingId;
         console.log(`SKIPPED (ID: ${existingId})`);
         continue;
       }
-      
+
       // Find if this category has a translation relationship
       let mainCategoryId = null;
       let translationGroup = null;
-      
+
       // Look through translation relationships to find main language counterpart
       if (translations.wpml) {
         for (const [slug, langMap] of Object.entries(translations.wpml)) {
@@ -451,14 +496,14 @@ async function importCategories(): Promise<void> {
           }
         }
       }
-      
+
       try {
         // Process image if present
         let newImageId = null;
         if (category.image) {
           newImageId = await processImage(category.image, stats);
         }
-        
+
         // If no translation relationship found, create as standalone
         if (!mainCategoryId) {
           const response = await fetchJSON(
@@ -474,24 +519,24 @@ async function importCategories(): Promise<void> {
               }),
             }
           );
-          
+
           // Store ID mapping for later use
           idMapping[lang][category.id] = response.id;
-          
+
           // Update statistics
           stats.categories[lang].created++;
-          
+
           console.log(`CREATED (ID: ${response.id})`);
         } else {
           // This is a translation of a main language category
           const mainNewId = idMapping[mainLanguage]?.[mainCategoryId];
-          
+
           if (!mainNewId) {
             console.log(`FAILED (Main language category not found)`);
             stats.categories[lang].failed++;
             continue;
           }
-          
+
           const response = await fetchJSON(
             `${config.importBaseUrl}/wp-json/wc/v3/products/categories?lang=${lang}`,
             {
@@ -506,18 +551,20 @@ async function importCategories(): Promise<void> {
               }),
             }
           );
-          
+
           // Store ID mapping for later use
           idMapping[lang][category.id] = response.id;
-          
+
           // Update statistics
           stats.categories[lang].created++;
-          
+
           console.log(`CREATED as translation (ID: ${response.id})`);
         }
       } catch (error) {
-        console.log(`FAILED (${error instanceof Error ? error.message : String(error)})`);
-        
+        console.log(
+          `FAILED (${error instanceof Error ? error.message : String(error)})`
+        );
+
         // Update statistics
         stats.categories[lang].failed++;
       }
@@ -526,13 +573,13 @@ async function importCategories(): Promise<void> {
 
   // 3. Update parent relationships
   console.log("\nUpdating parent relationships...");
-  
+
   // First for main language
   for (const category of data[mainLanguage]) {
     if (category.parent > 0) {
       const newId = idMapping[mainLanguage][category.id];
       const newParentId = idMapping[mainLanguage][category.parent];
-      
+
       if (newId && newParentId) {
         try {
           await fetchJSON(
@@ -544,26 +591,31 @@ async function importCategories(): Promise<void> {
               }),
             }
           );
-          
-          console.log(`Updated parent for ${mainLanguage} category "${category.name}" (ID: ${newId}, Parent: ${newParentId})`);
+
+          console.log(
+            `Updated parent for ${mainLanguage} category "${category.name}" (ID: ${newId}, Parent: ${newParentId})`
+          );
         } catch (error) {
-          console.error(`Failed to update parent for ${mainLanguage} category "${category.name}":`, error);
+          console.error(
+            `Failed to update parent for ${mainLanguage} category "${category.name}":`,
+            error
+          );
         }
       }
     }
   }
-  
+
   // Then for other languages
   for (const lang of otherLanguages) {
     if (!data[lang] || data[lang].length === 0) {
       continue;
     }
-    
+
     for (const category of data[lang]) {
       if (category.parent > 0) {
         const newId = idMapping[lang][category.id];
         const newParentId = idMapping[lang][category.parent];
-        
+
         if (newId && newParentId) {
           try {
             await fetchJSON(
@@ -575,10 +627,15 @@ async function importCategories(): Promise<void> {
                 }),
               }
             );
-            
-            console.log(`Updated parent for ${lang} category "${category.name}" (ID: ${newId}, Parent: ${newParentId})`);
+
+            console.log(
+              `Updated parent for ${lang} category "${category.name}" (ID: ${newId}, Parent: ${newParentId})`
+            );
           } catch (error) {
-            console.error(`Failed to update parent for ${lang} category "${category.name}":`, error);
+            console.error(
+              `Failed to update parent for ${lang} category "${category.name}":`,
+              error
+            );
           }
         }
       }
@@ -587,19 +644,19 @@ async function importCategories(): Promise<void> {
 
   // 4. Verify translation connections
   console.log("\nVerifying translation connections...");
-  
+
   // For each translation group, count the successful connections
   let translationConnectionsCount = 0;
-  
+
   if (translations.wpml) {
     for (const [slug, langMap] of Object.entries(translations.wpml)) {
       // Create a map of new IDs for this translation group
       const newLangMap: Record<string, number> = {};
       let hasAllTranslations = true;
-      
+
       for (const [lang, id] of Object.entries(langMap)) {
         const newId = idMapping[lang]?.[id as number];
-        
+
         if (newId) {
           newLangMap[lang] = newId;
         } else {
@@ -607,15 +664,17 @@ async function importCategories(): Promise<void> {
           break;
         }
       }
-      
+
       // If we have at least two languages in this group, count it as a successful connection
       if (hasAllTranslations && Object.keys(newLangMap).length >= 2) {
         translationConnectionsCount++;
-        console.log(`  Translation group "${slug}" successfully connected via translation_of parameter`);
+        console.log(
+          `  Translation group "${slug}" successfully connected via translation_of parameter`
+        );
       }
     }
   }
-  
+
   console.log(`  Total translation groups: ${translationConnectionsCount}`);
 
   // Clean up temp directory
@@ -625,16 +684,20 @@ async function importCategories(): Promise<void> {
 
   // Print statistics
   console.log("\n📊 Import Statistics:");
-  
+
   console.log("\nCategories:");
   for (const [lang, counts] of Object.entries(stats.categories)) {
     const flag = getFlagEmoji(lang);
-    console.log(`- ${flag} ${lang}: ${counts.created} created, ${counts.skipped} skipped, ${counts.failed} failed`);
+    console.log(
+      `- ${flag} ${lang}: ${counts.created} created, ${counts.skipped} skipped, ${counts.failed} failed`
+    );
   }
-  
+
   console.log("\nTranslation Connections:");
-  console.log(`- ${translationConnectionsCount} successfully connected via translation_of parameter`);
-  
+  console.log(
+    `- ${translationConnectionsCount} successfully connected via translation_of parameter`
+  );
+
   console.log("\nImages:");
   console.log(`- ${stats.images.downloaded} downloaded`);
   console.log(`- ${stats.images.uploaded} uploaded`);

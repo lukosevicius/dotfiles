@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
 import config from "./config";
+import { getFlagEmoji } from "./utils/language";
 
 // Type for the export data structure
 interface ExportData {
@@ -21,7 +22,9 @@ async function fetchJSON(url: string): Promise<any> {
     headers: {
       Authorization:
         "Basic " +
-        Buffer.from(`${config.exportUsername}:${config.exportPassword}`).toString("base64"),
+        Buffer.from(
+          `${config.exportUsername}:${config.exportPassword}`
+        ).toString("base64"),
     },
   });
 
@@ -66,21 +69,7 @@ async function fetchAllPages(baseUrl: string): Promise<any[]> {
   return allData;
 }
 
-/**
- * Get flag emoji for language code
- */
-function getFlagEmoji(langCode: string): string {
-  const flagMap: Record<string, string> = {
-    'lt': '🇱🇹', // Lithuania
-    'en': '🇬🇧', // United Kingdom
-    'lv': '🇱🇻', // Latvia
-    'ru': '🇷🇺', // Russia
-    'de': '🇩🇪', // Germany
-    // Add more as needed
-  };
-  
-  return flagMap[langCode] || '';
-}
+// getFlagEmoji function is now imported from ../utils/language
 
 async function exportCategories(): Promise<void> {
   // Ensure output directory exists
@@ -90,34 +79,37 @@ async function exportCategories(): Promise<void> {
 
   // Get site name
   const siteName = await getSiteName(config.exportBaseUrl);
-  
+
   console.log(`🔄 Exporting from: ${config.exportBaseUrl} (${siteName})`);
   console.log("🔍 Fetching categories from WooCommerce API...");
-  
+
   // Step 1: Fetch all categories in all languages to get translation information
   const allCategories = await fetchAllPages(
     `${config.exportBaseUrl}/wp-json/wc/v3/products/categories?lang=all`
   );
-  
+
   console.log(`✅ Fetched ${allCategories.length} categories in total`);
-  
+
   // Debug: Check what languages are actually present in the response
   const languagesInResponse = new Set<string>();
-  allCategories.forEach(cat => {
+  allCategories.forEach((cat) => {
     if (cat.lang) {
       languagesInResponse.add(cat.lang);
     }
-    
+
     // Also check translations property
     if (cat.translations) {
-      Object.keys(cat.translations).forEach(lang => {
+      Object.keys(cat.translations).forEach((lang) => {
         languagesInResponse.add(lang);
       });
     }
   });
-  
-  console.log("📊 Languages found in API response:", Array.from(languagesInResponse).join(", "));
-  
+
+  console.log(
+    "📊 Languages found in API response:",
+    Array.from(languagesInResponse).join(", ")
+  );
+
   // Step 2: Organize categories by language
   const categoriesByLang: Record<string, any[]> = {};
   const translationMap: Record<string, Record<string, number>> = {};
@@ -131,12 +123,12 @@ async function exportCategories(): Promise<void> {
   // Process each category
   for (const category of allCategories) {
     const categoryLang = category.lang || config.mainLanguage;
-    
+
     // Filter out yoast_head and yoast_head_json fields
     const filteredCategory = { ...category };
     delete filteredCategory.yoast_head;
     delete filteredCategory.yoast_head_json;
-    
+
     // Add to the appropriate language bucket
     if (categoriesByLang[categoryLang]) {
       categoriesByLang[categoryLang].push(filteredCategory);
@@ -165,15 +157,19 @@ async function exportCategories(): Promise<void> {
   }
 
   console.log("\n📊 Export Statistics:");
-  console.log(`Total categories: ${Object.values(categoriesByLang).flat().length}`);
-  
+  console.log(
+    `Total categories: ${Object.values(categoriesByLang).flat().length}`
+  );
+
   console.log("\nBy language:");
   for (const [lang, categories] of Object.entries(categoriesByLang)) {
     const flag = getFlagEmoji(lang);
     console.log(`- ${flag} ${lang}: ${categories.length}`);
   }
-  
-  console.log(`\nTranslation relationships: ${Object.keys(translationMap).length}`);
+
+  console.log(
+    `\nTranslation relationships: ${Object.keys(translationMap).length}`
+  );
 
   // Save to file with translation relationships
   const exportData: ExportData = {
