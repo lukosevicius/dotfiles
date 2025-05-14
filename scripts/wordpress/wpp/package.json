@@ -2,7 +2,10 @@
   "name": "wordpress-export-tools",
   "version": "1.0.0",
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0"
+  },
   "devDependencies": {
     "@types/node": "^20.12.4",
     "@types/node-fetch": "^2.6.4",
