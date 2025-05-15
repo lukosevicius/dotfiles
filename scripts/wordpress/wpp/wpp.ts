@@ -247,61 +247,123 @@ program
   .description("Show interactive menu")
   .action(async () => {
     try {
-      const contentTypeName = selectedContentType === "categories" ? "Product Categories" : "Products";
-      displayHeader(`WordPress ${contentTypeName} Management Tool`);
+      // Always start with content type selection
+      await selectContentType();
       
-      // Define available operations
-      const operations = [
-        { id: "export", name: `Export ${selectedContentType}`, description: `Export ${selectedContentType} from a WordPress site` },
-        { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to a WordPress site` },
-        { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from a WordPress site` },
-        { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
-        { id: "complete", name: "Complete workflow", description: "Run the complete export-test-import workflow" },
-        { id: "select-type", name: "Change content type", description: "Select a different content type to manage" },
-        { id: "exit", name: "Exit", description: "Exit the program" },
-      ];
-      
-      // Display menu options
-      console.log(chalk.cyan(`Managing: ${chalk.bold(contentTypeName)}\n`));
-      console.log(chalk.cyan("Available operations:\n"));
-      operations.forEach((op, index) => {
-        console.log(
-          chalk.green(`${index + 1}. `) + 
-          chalk.bold(op.name) + 
-          chalk.dim(` - ${op.description}`)
-        );
-      });
-      
-      // Get user selection
-      const rl = createPrompt();
-      const answer = await new Promise<string>((resolve) => {
-        rl.question(chalk.cyan("\nEnter the number of the operation you want to perform: "), resolve);
-      });
-      rl.close();
-      
-      const selectedIndex = parseInt(answer, 10) - 1;
-      
-      if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= operations.length) {
-        console.log(
-          chalk.red(`Invalid selection. Please enter a number between 1 and ${operations.length}`)
-        );
-        return;
-      }
-      
-      const selectedOperation = operations[selectedIndex];
-      
-      if (selectedOperation.id === "exit") {
-        console.log(chalk.blue("Exiting..."));
-        return;
-      }
-      
-      // Execute the selected operation
-      await program.parseAsync([process.argv[0], process.argv[1], selectedOperation.id]);
+      // Then show operations for the selected content type
+      await showOperationsMenu();
     } catch (error) {
       console.error(chalk.red.bold("An error occurred:"), error);
       process.exit(1);
     }
   });
+
+/**
+ * Select content type interactively
+ */
+async function selectContentType(): Promise<void> {
+  displayHeader("Select Content Type");
+  
+  // Define available content types
+  const contentTypes = [
+    { id: "categories", name: "Product Categories", description: "Manage product categories" },
+    { id: "products", name: "Products", description: "Manage products" },
+  ];
+  
+  // Display content type options
+  console.log(chalk.cyan("Available content types:\n"));
+  contentTypes.forEach((type, index) => {
+    console.log(
+      chalk.green(`${index + 1}. `) + 
+      chalk.bold(type.name) + 
+      chalk.dim(` - ${type.description}`)
+    );
+  });
+  
+  // Get user selection
+  const rl = createPrompt();
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(chalk.cyan("\nEnter the number of the content type you want to manage: "), resolve);
+  });
+  rl.close();
+  
+  const selectedIndex = parseInt(answer, 10) - 1;
+  
+  if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= contentTypes.length) {
+    console.log(
+      chalk.red(`Invalid selection. Please enter a number between 1 and ${contentTypes.length}`)
+    );
+    process.exit(1);
+  }
+  
+  const selectedType = contentTypes[selectedIndex];
+  selectedContentType = selectedType.id as ContentType;
+  
+  console.log(chalk.green(`\nSelected content type: ${chalk.bold(selectedType.name)}`));
+}
+
+/**
+ * Show operations menu for the selected content type
+ */
+async function showOperationsMenu(): Promise<void> {
+  const contentTypeName = selectedContentType === "categories" ? "Product Categories" : "Products";
+  displayHeader(`WordPress ${contentTypeName} Management Tool`);
+  
+  // Define available operations
+  const operations = [
+    { id: "export", name: `Export ${selectedContentType}`, description: `Export ${selectedContentType} from a WordPress site` },
+    { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to a WordPress site` },
+    { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from a WordPress site` },
+    { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
+    { id: "complete", name: "Complete workflow", description: "Run the complete export-test-import workflow" },
+    { id: "select-type", name: "Change content type", description: "Select a different content type to manage" },
+    { id: "exit", name: "Exit", description: "Exit the program" },
+  ];
+  
+  // Display menu options
+  console.log(chalk.cyan(`Managing: ${chalk.bold(contentTypeName)}\n`));
+  console.log(chalk.cyan("Available operations:\n"));
+  operations.forEach((op, index) => {
+    console.log(
+      chalk.green(`${index + 1}. `) + 
+      chalk.bold(op.name) + 
+      chalk.dim(` - ${op.description}`)
+    );
+  });
+  
+  // Get user selection
+  const rl = createPrompt();
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(chalk.cyan("\nEnter the number of the operation you want to perform: "), resolve);
+  });
+  rl.close();
+  
+  const selectedIndex = parseInt(answer, 10) - 1;
+  
+  if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= operations.length) {
+    console.log(
+      chalk.red(`Invalid selection. Please enter a number between 1 and ${operations.length}`)
+    );
+    return;
+  }
+  
+  const selectedOperation = operations[selectedIndex];
+  
+  if (selectedOperation.id === "exit") {
+    console.log(chalk.blue("Exiting..."));
+    return;
+  }
+  
+  if (selectedOperation.id === "select-type") {
+    // If user wants to change content type, restart the process
+    await selectContentType();
+    await showOperationsMenu();
+    return;
+  }
+  
+  // Execute the selected operation
+  await program.parseAsync([process.argv[0], process.argv[1], selectedOperation.id]);
+}
 
 // Test command
 program
