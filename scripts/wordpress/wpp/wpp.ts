@@ -4,24 +4,24 @@
  * A global script to manage WordPress products and categories across multiple sites
  * Enhanced with Commander for CLI structure and Chalk for colorful output
  */
-import fs from "fs";
-import path from "path";
-import { spawn } from "child_process";
 import { Command } from "commander";
 import chalk from "chalk";
+import path from "path";
+import { spawn } from "child_process";
 import readline from "readline";
+import fs from "fs";
+import { displayHeader as formatHeader } from "./shared/utils/formatting";
 
-// Define script paths for categories
-const categoryExportScript = path.join(__dirname, "export.ts");
-const categoryImportScript = path.join(__dirname, "import.ts");
-const categoryDeleteScript = path.join(__dirname, "delete.ts");
-const categoryTestScript = path.join(__dirname, "test.ts");
+// Define script paths
+const categoryExportScript = path.join(__dirname, "categories/export.ts");
+const categoryImportScript = path.join(__dirname, "categories/import.ts");
+const categoryDeleteScript = path.join(__dirname, "categories/delete.ts");
+const categoryTestScript = path.join(__dirname, "categories/test.ts");
 
-// Define script paths for products (to be implemented)
-const productExportScript = path.join(__dirname, "product-export.ts");
-const productImportScript = path.join(__dirname, "product-import.ts");
-const productDeleteScript = path.join(__dirname, "product-delete.ts");
-const productTestScript = path.join(__dirname, "product-test.ts");
+const productExportScript = path.join(__dirname, "products/export.ts");
+const productImportScript = path.join(__dirname, "products/import.ts");
+const productDeleteScript = path.join(__dirname, "products/delete.ts");
+const productTestScript = path.join(__dirname, "products/test.ts");
 
 // Define content types
 type ContentType = "categories" | "products";
@@ -49,6 +49,12 @@ program
  */
 const runScript = (scriptPath: string, args: string[] = []): Promise<void> => {
   return new Promise((resolve, reject) => {
+    // Check if script exists
+    if (!fs.existsSync(scriptPath)) {
+      reject(new Error(`Script not found: ${scriptPath}`));
+      return;
+    }
+    
     console.log(chalk.dim(`Running script: ${path.basename(scriptPath)}`));
     
     const childProcess = spawn("yarn", ["ts-node", scriptPath, ...args], {
@@ -84,8 +90,7 @@ const createPrompt = (): readline.Interface => {
  * Display a header with a title
  */
 const displayHeader = (title: string): void => {
-  console.log("\n" + chalk.bgBlue.white.bold(` ${title} `));
-  console.log(chalk.blue("=".repeat(title.length + 4) + "\n"));
+  formatHeader(title);
 };
 
 // Export command
