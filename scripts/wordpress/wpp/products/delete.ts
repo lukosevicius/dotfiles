@@ -1,24 +1,39 @@
 import fetch from "node-fetch";
 import config from "../shared/config";
 import chalk from "chalk";
-import { fetchJSON } from "../shared/utils/api";
+import { fetchJSON, getSiteName } from "../shared/utils/api";
+import readline from "readline";
 
 // Check if --confirm flag is provided
 const shouldConfirm = !process.argv.includes("--confirm");
 
 async function deleteAllProducts(): Promise<void> {
-  if (shouldConfirm) {
-    console.log(chalk.red.bold("⚠️ WARNING: This will delete ALL products from the WordPress site!"));
-    console.log(chalk.yellow("Run with --confirm flag to skip this confirmation."));
-    console.log(chalk.yellow("Press Ctrl+C to cancel or wait 5 seconds to continue..."));
-    
-    // Wait for 5 seconds to allow cancellation
-    await new Promise(resolve => setTimeout(resolve, 5000));
-  }
-  
+  // Get site name first
   console.log(chalk.cyan(`🔄 Connecting to: ${config.importBaseUrl}`));
   
   try {
+    const siteName = await getSiteName(config.importBaseUrl);
+    
+    if (shouldConfirm) {
+      console.log(chalk.red.bold(`⚠️ WARNING: This will delete ALL products from: ${chalk.white.bgRed(` ${siteName} (${config.importBaseUrl}) `)}!`));
+      console.log(chalk.yellow("Run with --confirm flag to skip this confirmation."));
+      
+      // Ask for explicit confirmation
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(chalk.red.bold('\nAre you sure you want to delete all products? (y/n): '), resolve);
+      });
+      rl.close();
+      
+      if (answer.toLowerCase() !== "y") {
+        console.log(chalk.blue("Deletion cancelled."));
+        return;
+      }
+    }
     // First, get all products
     console.log(chalk.cyan("📋 Fetching product list..."));
     

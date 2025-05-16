@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import chalk from "chalk";
+import readline from "readline";
 import config from "../shared/config";
 import { fetchJSON, getSiteName } from "../shared/utils/api";
 import { getFlagEmoji } from "../shared/utils/language";
@@ -10,6 +11,7 @@ interface ExportData {
     exported_at: string;
     main_language: string;
     other_languages: string[];
+    source_site?: string; // Optional source site name
   };
   translations: {
     wpml: Record<string, Record<string, number>>;
@@ -44,11 +46,39 @@ async function importProducts(): Promise<void> {
   const exportData: ExportData = JSON.parse(fs.readFileSync(inputFile, "utf-8"));
   const { meta, translations, data } = exportData;
   
-  // Get site name
-  const siteName = await getSiteName(config.importBaseUrl);
+  // Get source and target site names
+  const sourceSiteName = exportData.meta.source_site || "Unknown source site";
+  const targetSiteName = await getSiteName(config.importBaseUrl);
   
-  console.log(chalk.cyan(`🔄 Importing to: ${config.importBaseUrl} (${siteName})`));
   console.log(chalk.cyan(`📊 Found ${Object.values(data).flat().length} products in ${Object.keys(data).length} languages`));
+  
+  // Show clear import information and ask for confirmation
+  console.log(chalk.yellow.bold(`\n⚠️ IMPORT CONFIRMATION`));
+  console.log(chalk.yellow(`You are about to import products:`));
+  console.log(chalk.yellow(`- FROM: ${chalk.white(sourceSiteName)} (export file)`));
+  console.log(chalk.yellow(`- TO:   ${chalk.white.bgBlue(` ${targetSiteName} (${config.importBaseUrl}) `)}`));
+  
+  // Skip confirmation if force-import flag is set
+  if (!process.argv.includes("--force-import")) {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    
+    const answer = await new Promise<string>((resolve) => {
+      rl.question(chalk.yellow.bold('\nProceed with import? (y/n): '), resolve);
+    });
+    rl.close();
+    
+    if (answer.toLowerCase() !== "y") {
+      console.log(chalk.blue("Import cancelled."));
+      return;
+    }
+  } else {
+    console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
+  }
+  
+  console.log(chalk.cyan(`🔄 Importing to: ${config.importBaseUrl} (${targetSiteName})`));
   
   // Initialize stats for each language
   const allLanguages = [meta.main_language, ...meta.other_languages];

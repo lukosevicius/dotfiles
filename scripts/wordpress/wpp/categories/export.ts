@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import chalk from "chalk";
 import { fetchJSON, fetchAllPages, getSiteName } from "../shared/utils/api";
 import config from "../shared/config";
 import { getFlagEmoji } from "../shared/utils/language";
@@ -10,6 +11,7 @@ interface ExportData {
     exported_at: string;
     main_language: string;
     other_languages: string[];
+    source_site: string;
   };
   translations: {
     wpml: Record<string, Record<string, number>>;
@@ -28,15 +30,15 @@ async function exportCategories(): Promise<void> {
   // Get site name
   const siteName = await getSiteName(config.exportBaseUrl);
 
-  console.log(`🔄 Exporting from: ${config.exportBaseUrl} (${siteName})`);
-  console.log("🔍 Fetching categories from WooCommerce API...");
+  console.log(chalk.cyan(`🔄 Exporting from: ${config.exportBaseUrl} (${chalk.white.bold(siteName)}))`));
+  console.log(chalk.cyan("🔍 Fetching categories from WooCommerce API..."));
 
   // Step 1: Fetch all categories in all languages to get translation information
   const allCategories = await fetchAllPages(
     `${config.exportBaseUrl}/wp-json/wc/v3/products/categories?lang=all`
   );
 
-  console.log(`✅ Fetched ${allCategories.length} categories in total`);
+  console.log(chalk.green(`✓ Fetched ${allCategories.length} categories in total`));
 
   // Debug: Check what languages are actually present in the response
   const languagesInResponse = new Set<string>();
@@ -54,8 +56,8 @@ async function exportCategories(): Promise<void> {
   });
 
   console.log(
-    "📊 Languages found in API response:",
-    Array.from(languagesInResponse).join(", ")
+    chalk.cyan("📊 Languages found in API response:"),
+    chalk.white(Array.from(languagesInResponse).join(", "))
   );
 
   // Step 2: Organize categories by language
@@ -104,19 +106,19 @@ async function exportCategories(): Promise<void> {
     }
   }
 
-  console.log("\n📊 Export Statistics:");
+  console.log(chalk.cyan("\n📊 Export Statistics:"));
   console.log(
-    `Total categories: ${Object.values(categoriesByLang).flat().length}`
+    chalk.cyan(`Total categories: ${chalk.white.bold(Object.values(categoriesByLang).flat().length)}`)
   );
 
-  console.log("\nBy language:");
+  console.log(chalk.cyan("\nBy language:"));
   for (const [lang, categories] of Object.entries(categoriesByLang)) {
     const flag = getFlagEmoji(lang);
-    console.log(`- ${flag} ${lang}: ${categories.length}`);
+    console.log(chalk.cyan(`- ${flag} ${lang}: ${chalk.white.bold(categories.length)}`));
   }
 
   console.log(
-    `\nTranslation relationships: ${Object.keys(translationMap).length}`
+    chalk.cyan(`\nTranslation relationships: ${chalk.white.bold(Object.keys(translationMap).length)}`)
   );
 
   // Save to file with translation relationships
@@ -125,6 +127,7 @@ async function exportCategories(): Promise<void> {
       exported_at: new Date().toISOString(),
       main_language: config.mainLanguage,
       other_languages: config.otherLanguages,
+      source_site: siteName,
     },
     translations: {
       wpml: translationMap,
@@ -135,7 +138,7 @@ async function exportCategories(): Promise<void> {
   const outFile = path.join(config.outputDir, `exported-categories.json`);
   fs.writeFileSync(outFile, JSON.stringify(exportData, null, 2));
   console.log(
-    `✅ Exported categories to ${outFile} (Total: ${allCategories.length} items)`
+    chalk.green.bold(`✓ Exported categories to ${outFile} (Total: ${allCategories.length} items)`)
   );
 }
 
@@ -143,7 +146,7 @@ async function main(): Promise<void> {
   try {
     await exportCategories();
   } catch (error) {
-    console.error("❌ Export failed:", error);
+    console.error(chalk.red.bold("✗ Export failed:"), error);
   }
 }
 

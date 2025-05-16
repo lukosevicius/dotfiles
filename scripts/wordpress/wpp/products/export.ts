@@ -10,6 +10,7 @@ interface ExportData {
     exported_at: string;
     main_language: string;
     other_languages: string[];
+    source_site: string; // Source site name
   };
   translations: {
     wpml: Record<string, Record<string, number>>;
@@ -24,9 +25,9 @@ async function exportProducts(): Promise<void> {
   }
 
   // Get site name
-  const siteName = await getSiteName(config.exportBaseUrl);
+  const sourceSiteName = await getSiteName(config.exportBaseUrl);
 
-  console.log(`🔄 Exporting products from: ${config.exportBaseUrl} (${siteName})`);
+  console.log(`🔄 Exporting products from: ${config.exportBaseUrl} (${sourceSiteName})`);
   console.log("🔍 Fetching products from WooCommerce API...");
 
   // Step 1: Fetch all products in all languages to get translation information
@@ -123,6 +124,7 @@ async function exportProducts(): Promise<void> {
       exported_at: new Date().toISOString(),
       main_language: config.mainLanguage,
       other_languages: config.otherLanguages,
+      source_site: sourceSiteName, // Include source site name
     },
     translations: {
       wpml: translationMap,

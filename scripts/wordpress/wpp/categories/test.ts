@@ -1,13 +1,16 @@
 // wpml-relationship-test.ts
 import fs from "fs";
 import path from "path";
-import config from "./config";
+import chalk from "chalk";
+import config from "../shared/config";
+import { getFlagEmoji } from "../shared/utils/language";
 
 interface ExportData {
   meta: {
     exported_at: string;
     main_language: string;
     other_languages: string[];
+    source_site?: string;
   };
   translations: {
     wpml: Record<string, Record<string, number>>;
@@ -38,16 +41,20 @@ function loadData(filePath: string): ExportData {
 }
 
 function showMetadata(exportData: ExportData) {
-  console.log("\n📋 Export Metadata:");
-  console.log(`- Exported at: ${exportData.meta.exported_at}`);
-  console.log(`- Main language: ${exportData.meta.main_language}`);
-  console.log(`- Other languages: ${exportData.meta.other_languages.join(", ")}`);
+  console.log(chalk.cyan("\n📋 Export Metadata:"));
+  console.log(chalk.cyan(`- Exported at: ${chalk.white(exportData.meta.exported_at)}`));
+  console.log(chalk.cyan(`- Main language: ${chalk.white(exportData.meta.main_language)} ${getFlagEmoji(exportData.meta.main_language)}`));
+  console.log(chalk.cyan(`- Other languages: ${chalk.white(exportData.meta.other_languages.map(lang => `${lang} ${getFlagEmoji(lang)}`).join(", "))}`));
+  if (exportData.meta.source_site) {
+    console.log(chalk.cyan(`- Source site: ${chalk.white.bold(exportData.meta.source_site)}`));
+  }
 }
 
 function countByLang(exportData: ExportData) {
-  console.log("\n📊 Category Count by Language:");
+  console.log(chalk.cyan("\n📊 Category Count by Language:"));
   for (const [lang, categories] of Object.entries(exportData.data)) {
-    console.log(`- ${lang}: ${categories.length}`);
+    const flag = getFlagEmoji(lang);
+    console.log(chalk.cyan(`- ${flag} ${lang}: ${chalk.white.bold(categories.length)}`));
   }
 }
 
@@ -56,10 +63,10 @@ function visualizeTranslationRelationships(exportData: ExportData) {
   const mainLanguage = meta.main_language;
   const otherLanguages = meta.other_languages;
   
-  console.log("\n🔗 Translation Relationships:");
+  console.log(chalk.cyan("\n🔗 Translation Relationships:"));
   
   if (translations.wpml && Object.keys(translations.wpml).length > 0) {
-    console.log(`Found ${Object.keys(translations.wpml).length} translation groups`);
+    console.log(chalk.cyan(`Found ${chalk.white.bold(Object.keys(translations.wpml).length)} translation groups`));
     
     // Sort slugs alphabetically
     const sortedSlugs = Object.keys(translations.wpml).sort();
@@ -69,13 +76,13 @@ function visualizeTranslationRelationships(exportData: ExportData) {
     const mainLanguageSlugs = new Set(mainLanguageCategories.map(cat => cat.slug));
     
     // Table 1: Only main language slugs with all related IDs
-    console.log(`\n📊 Categories with ${mainLanguage.toUpperCase()} slugs:`);
+    console.log(chalk.cyan(`\n📊 Categories with ${chalk.white.bold(mainLanguage.toUpperCase())} slugs:`));
     
     // Header row
-    const slugHeader = "Slug".padEnd(40);
-    const langHeaders = [mainLanguage.toUpperCase(), ...otherLanguages.map(l => l.toUpperCase())].map(l => l.padEnd(8));
+    const slugHeader = chalk.blue("Slug".padEnd(40));
+    const langHeaders = [mainLanguage.toUpperCase(), ...otherLanguages.map(l => l.toUpperCase())].map(l => chalk.blue(l.padEnd(8)));
     console.log(slugHeader + langHeaders.join(" "));
-    console.log("-".repeat(40 + (langHeaders.length * 9)));
+    console.log(chalk.dim("-".repeat(40 + (langHeaders.length * 9))));
     
     // Filter slugs that are in the main language
     const mainLanguageSlugsList = sortedSlugs.filter(slug => mainLanguageSlugs.has(slug));
@@ -100,13 +107,13 @@ function visualizeTranslationRelationships(exportData: ExportData) {
     });
     
     if (slugsWithoutMainLang.length > 0) {
-      console.log(`\n📊 Categories without ${mainLanguage.toUpperCase()} assigned:`);
+      console.log(chalk.yellow(`\n📊 Categories without ${chalk.white.bold(mainLanguage.toUpperCase())} assigned:`));
       
       // Header row
-      const slugHeader = "Slug".padEnd(40);
-      const langHeaders = [mainLanguage.toUpperCase(), ...otherLanguages.map(l => l.toUpperCase())].map(l => l.padEnd(8));
+      const slugHeader = chalk.blue("Slug".padEnd(40));
+      const langHeaders = [mainLanguage.toUpperCase(), ...otherLanguages.map(l => l.toUpperCase())].map(l => chalk.blue(l.padEnd(8)));
       console.log(slugHeader + langHeaders.join(" "));
-      console.log("-".repeat(40 + (langHeaders.length * 9)));
+      console.log(chalk.dim("-".repeat(40 + (langHeaders.length * 9))));
       
       for (const slug of slugsWithoutMainLang) {
         const langMap = translations.wpml[slug];
@@ -195,22 +202,14 @@ function analyzeCategory(exportData: ExportData, searchTerm: string) {
   
   console.log(`\n🔍 Analyzing category: "${searchTerm}"`);
   
-  // Step 1: Find all slugs that match or contain the search term
-  const matchingSlugs = Object.keys(translations.wpml).filter(slug => {
-    // Check if the slug matches or contains the search term
-    if (slug.includes(searchTerm)) return true;
-    
-    // Check if the decoded slug matches or contains the search term
-    if (slug.includes('%')) {
-      const decoded = decodeSlug(slug);
-      if (decoded.includes(searchTerm)) return true;
-    }
-    
-    return false;
-  });
+  // First check if the search term matches a slug in the translation map
+  const matchingSlugs = Object.keys(translations.wpml).filter(slug => 
+    slug.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    decodeSlug(slug).toLowerCase().includes(searchTerm.toLowerCase())
+  );
   
+  // If no direct slug match, look for categories with matching name or slug
   if (matchingSlugs.length === 0) {
-    // If no slug matches, try to find categories by name
     const matchingCategories: Record<string, any[]> = {};
     
     for (const lang of allLanguages) {
@@ -227,27 +226,27 @@ function analyzeCategory(exportData: ExportData, searchTerm: string) {
     }
     
     if (Object.keys(matchingCategories).length === 0) {
-      console.log(`❌ No categories found matching "${searchTerm}"`);
+      console.log(chalk.red(`✗ No categories found matching "${searchTerm}"`));
       return;
     }
     
-    console.log(`Found ${Object.values(matchingCategories).flat().length} categories by name/slug:`);
+    console.log(chalk.green(`Found ${chalk.white.bold(Object.values(matchingCategories).flat().length)} categories by name/slug:`));
     
     for (const [lang, categories] of Object.entries(matchingCategories)) {
-      console.log(`\n${lang.toUpperCase()}:`);
+      console.log(chalk.cyan(`\n${lang.toUpperCase()} ${getFlagEmoji(lang)}:`));
       for (const cat of categories) {
-        console.log(`- ${cat.name} (slug: ${cat.slug}, ID: ${cat.id})`);
+        console.log(chalk.white(`- ${cat.name} (slug: ${chalk.dim(cat.slug)}, ID: ${chalk.dim(cat.id.toString())})`));
         
         // Find translation group for this category
         for (const [slug, langMap] of Object.entries(translations.wpml)) {
           if (langMap[lang] === cat.id) {
-            console.log(`  Translation group: ${slug}`);
-            console.log(`  Translations:`);
+            console.log(chalk.dim(`  Translation group: ${slug}`));
+            console.log(chalk.cyan(`  Translations:`));
             
             for (const [transLang, transId] of Object.entries(langMap)) {
               if (transLang !== lang) {
                 const transName = findCategoryNameById(exportData, transLang, transId as number);
-                console.log(`    - ${transLang}: ${transName} (ID: ${transId})`);
+                console.log(chalk.cyan(`    - ${transLang} ${getFlagEmoji(transLang)}: ${chalk.white(transName)} (ID: ${chalk.dim(transId.toString())})`));
               }
             }
             
@@ -261,48 +260,48 @@ function analyzeCategory(exportData: ExportData, searchTerm: string) {
   }
   
   // Display detailed information for each matching slug
-  console.log(`Found ${matchingSlugs.length} matching translation groups:`);
+  console.log(chalk.green(`Found ${chalk.white.bold(matchingSlugs.length)} matching translation groups:`));
   
   for (const slug of matchingSlugs) {
     const langMap = translations.wpml[slug];
     const displaySlug = slug.includes('%') ? `${decodeSlug(slug)} (${slug})` : slug;
     
-    console.log(`\n📎 Translation Group: ${displaySlug}`);
-    console.log(`IDs by language:`);
+    console.log(chalk.cyan(`\n📎 Translation Group: ${chalk.white.bold(displaySlug)}`));
+    console.log(chalk.cyan(`IDs by language:`));
     
     for (const lang of allLanguages) {
       const id = langMap[lang];
       if (id) {
         const category = data[lang]?.find(cat => cat.id === id);
         if (category) {
-          console.log(`- ${lang.toUpperCase()}: ${category.name} (ID: ${id}, slug: ${category.slug})`);
+          console.log(chalk.cyan(`- ${lang.toUpperCase()} ${getFlagEmoji(lang)}: ${chalk.white(category.name)} (ID: ${chalk.dim(id.toString())}, slug: ${chalk.dim(category.slug)})`));
           
           // Display additional category information
           if (category.description) {
             const shortDesc = category.description.length > 50 
               ? category.description.substring(0, 47) + "..." 
               : category.description;
-            console.log(`  Description: ${shortDesc}`);
+            console.log(chalk.dim(`  Description: ${shortDesc}`));
           }
           
           if (category.parent) {
             const parentCategory = data[lang]?.find(cat => cat.id === category.parent);
             const parentName = parentCategory ? parentCategory.name : `Unknown (ID: ${category.parent})`;
-            console.log(`  Parent: ${parentName} (ID: ${category.parent})`);
+            console.log(chalk.dim(`  Parent: ${parentName} (ID: ${category.parent})`));
           }
           
           if (category.image) {
-            console.log(`  Has image: Yes (ID: ${category.image.id})`);
+            console.log(chalk.dim(`  Has image: Yes (ID: ${category.image.id})`));
           }
           
           if (category.count !== undefined) {
-            console.log(`  Product count: ${category.count}`);
+            console.log(chalk.dim(`  Product count: ${category.count}`));
           }
         } else {
-          console.log(`- ${lang.toUpperCase()}: Unknown category (ID: ${id})`);
+          console.log(chalk.yellow(`- ${lang.toUpperCase()} ${getFlagEmoji(lang)}: Unknown category (ID: ${id})`));
         }
       } else {
-        console.log(`- ${lang.toUpperCase()}: No translation`);
+        console.log(chalk.gray(`- ${lang.toUpperCase()} ${getFlagEmoji(lang)}: No translation`));
       }
     }
   }
@@ -310,6 +309,15 @@ function analyzeCategory(exportData: ExportData, searchTerm: string) {
 
 function main() {
   try {
+    console.log(chalk.cyan.bold("\n📊 WordPress Category Test Tool"));
+    
+    if (!fs.existsSync(config.inputFile)) {
+      console.error(chalk.red(`\n✗ Error: Category export file not found at ${config.inputFile}`));
+      console.log(chalk.yellow("Please run the category export first."));
+      process.exit(1);
+    }
+    
+    console.log(chalk.cyan(`\n📂 Loading category data from: ${config.inputFile}`));
     const exportData = loadData(config.inputFile);
     
     // Check if a specific category was requested
@@ -324,9 +332,12 @@ function main() {
       countByLang(exportData);
       visualizeTranslationRelationships(exportData);
       analyzeTranslationCoverage(exportData);
+      
+      console.log(chalk.green.bold("\n✓ Test completed successfully!"));
     }
   } catch (error) {
-    console.error("Error processing export data:", error);
+    console.error(chalk.red.bold("\n✗ Error processing export data:"), error);
+    process.exit(1);
   }
 }
 
