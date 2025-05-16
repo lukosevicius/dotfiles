@@ -1,6 +1,8 @@
 // product-test.ts
 import fs from "fs";
 import path from "path";
+import readline from "readline";
+import { spawn } from "child_process";
 import config from "../shared/config";
 import chalk from "chalk";
 
@@ -169,18 +171,44 @@ function analyzeTranslationCoverage(exportData: ExportData) {
     productsWithCompleteTranslations[lang] = 0;
   }
   
-  // Analyze translation groups
-  for (const [slug, langMap] of Object.entries(translations.wpml)) {
-    const availableLanguages = Object.keys(langMap);
+  // For each language, count how many of its products have translations
+  for (const lang of allLanguages) {
+    // Skip languages with no products
+    if (!data[lang] || data[lang].length === 0) continue;
     
-    for (const lang of availableLanguages) {
-      if (productsWithTranslations[lang] !== undefined) {
-        productsWithTranslations[lang]++;
-        
-        // Check if this product has translations in all languages
-        if (availableLanguages.length === allLanguages.length) {
-          productsWithCompleteTranslations[lang]++;
+    // For each product in this language
+    for (const product of data[lang]) {
+      let hasTranslation = false;
+      let hasAllTranslations = true;
+      
+      // Find if this product has a translation group
+      for (const [slug, langMap] of Object.entries(translations.wpml)) {
+        if (langMap[lang] === product.id) {
+          // Count languages this product is translated to
+          const translatedLanguages = Object.keys(langMap).filter(l => l !== lang);
+          
+          if (translatedLanguages.length > 0) {
+            hasTranslation = true;
+          }
+          
+          // Check if it has translations to all other languages
+          for (const otherLang of allLanguages) {
+            if (otherLang !== lang && !langMap[otherLang]) {
+              hasAllTranslations = false;
+              break;
+            }
+          }
+          
+          break; // Found the translation group for this product
         }
+      }
+      
+      if (hasTranslation) {
+        productsWithTranslations[lang]++;
+      }
+      
+      if (hasAllTranslations) {
+        productsWithCompleteTranslations[lang]++;
       }
     }
   }
@@ -469,15 +497,63 @@ function analyzeProduct(exportData: ExportData, searchTerm: string) {
   }
 }
 
-function main() {
+async function runExport(): Promise<boolean> {
+  return new Promise((resolve) => {
+    console.log(chalk.cyan("\n🔄 Running product export script..."));
+    
+    const exportScript = path.resolve(__dirname, "export.ts");
+    const tsNodePath = path.resolve(__dirname, "../node_modules/.bin/ts-node");
+    const child = spawn(tsNodePath, [exportScript], {
+      stdio: "inherit"
+    });
+    
+    child.on("close", (code) => {
+      if (code === 0) {
+        console.log(chalk.green("\n✓ Export completed successfully!"));
+        resolve(true);
+      } else {
+        console.error(chalk.red(`\n✗ Export failed with code ${code}`));
+        resolve(false);
+      }
+    });
+  });
+}
+
+async function main() {
   try {
     // Use a different input file for products
     const inputFile = config.inputFile.replace("exported-categories.json", "exported-products.json");
     
     if (!fs.existsSync(inputFile)) {
-      console.error(chalk.red(`Error: Product export file not found at ${inputFile}`));
-      console.log(chalk.yellow("Please run the product export first."));
-      process.exit(1);
+      console.error(chalk.red(`\n✗ Error: Product export file not found at ${inputFile}`));
+      
+      // Ask if the user wants to run the export script
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(chalk.yellow('\nWould you like to run the export script now? (y/n): '), resolve);
+      });
+      rl.close();
+      
+      if (answer.toLowerCase() === "y") {
+        const exportSuccess = await runExport();
+        if (!exportSuccess) {
+          console.log(chalk.yellow("\nExport failed. Please run the export script manually and try again."));
+          process.exit(1);
+        }
+        
+        // Check if the file exists now
+        if (!fs.existsSync(inputFile)) {
+          console.error(chalk.red(`\n✗ Export file still not found at ${inputFile} after running export.`));
+          process.exit(1);
+        }
+      } else {
+        console.log(chalk.blue("\nTest cancelled. Please run the export script first."));
+        process.exit(1);
+      }
     }
     
     const exportData = loadData(inputFile);

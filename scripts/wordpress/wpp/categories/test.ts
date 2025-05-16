@@ -1,6 +1,8 @@
 // wpml-relationship-test.ts
 import fs from "fs";
 import path from "path";
+import readline from "readline";
+import { spawn } from "child_process";
 import chalk from "chalk";
 import config from "../shared/config";
 import { getFlagEmoji } from "../shared/utils/language";
@@ -307,14 +309,62 @@ function analyzeCategory(exportData: ExportData, searchTerm: string) {
   }
 }
 
-function main() {
+async function runExport(): Promise<boolean> {
+  return new Promise((resolve) => {
+    console.log(chalk.cyan("\n🔄 Running category export script..."));
+    
+    const exportScript = path.resolve(__dirname, "export.ts");
+    const tsNodePath = path.resolve(__dirname, "../node_modules/.bin/ts-node");
+    const child = spawn(tsNodePath, [exportScript], {
+      stdio: "inherit"
+    });
+    
+    child.on("close", (code) => {
+      if (code === 0) {
+        console.log(chalk.green("\n✓ Export completed successfully!"));
+        resolve(true);
+      } else {
+        console.error(chalk.red(`\n✗ Export failed with code ${code}`));
+        resolve(false);
+      }
+    });
+  });
+}
+
+async function main() {
   try {
     console.log(chalk.cyan.bold("\n📊 WordPress Category Test Tool"));
     
     if (!fs.existsSync(config.inputFile)) {
       console.error(chalk.red(`\n✗ Error: Category export file not found at ${config.inputFile}`));
-      console.log(chalk.yellow("Please run the category export first."));
-      process.exit(1);
+      
+      // Ask if the user wants to run the export script
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(chalk.yellow('\nWould you like to run the export script now? (y/n): '), resolve);
+      });
+      rl.close();
+      
+      if (answer.toLowerCase() === "y") {
+        const exportSuccess = await runExport();
+        if (!exportSuccess) {
+          console.log(chalk.yellow("\nExport failed. Please run the export script manually and try again."));
+          process.exit(1);
+        }
+        
+        // Check if the file exists now
+        if (!fs.existsSync(config.inputFile)) {
+          console.error(chalk.red(`\n✗ Export file still not found at ${config.inputFile} after running export.`));
+          process.exit(1);
+        }
+      } else {
+        console.log(chalk.blue("\nTest cancelled. Please run the export script first."));
+        process.exit(1);
+      }
     }
     
     console.log(chalk.cyan(`\n📂 Loading category data from: ${config.inputFile}`));
