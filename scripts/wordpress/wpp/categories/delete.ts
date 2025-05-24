@@ -3,7 +3,7 @@ import path from "path";
 import fetch from "node-fetch";
 import readline from "readline";
 import chalk from "chalk";
-import config from "../config";
+import config, { getImportSite } from "../config";
 import { getFlagEmoji } from "../utils/language";
 import { fetchJSON, getSiteName } from "../utils/api";
 
@@ -20,7 +20,8 @@ interface CategoryData {
 async function deleteCategory(categoryId: number, lang: string): Promise<boolean> {
   try {
     // Force parameter ensures the category is deleted even if it has children
-    const url = `${config.importBaseUrl}/wp-json/wc/v3/products/categories/${categoryId}?force=true&lang=${lang}`;
+    const importSite = getImportSite();
+    const url = `${importSite.baseUrl}/wp-json/wc/v3/products/categories/${categoryId}?force=true&lang=${lang}`;
     const response = await fetchJSON(url, { method: "DELETE" });
 
     console.log(
@@ -39,7 +40,8 @@ async function fetchAllCategories(): Promise<any[]> {
   let hasMorePages = true;
   
   while (hasMorePages) {
-    const url = `${config.importBaseUrl}/wp-json/wc/v3/products/categories?per_page=${config.perPage}&page=${page}&lang=all`;
+    const importSite = getImportSite();
+    const url = `${importSite.baseUrl}/wp-json/wc/v3/products/categories?per_page=100&page=${page}&lang=all`;
     
     try {
       const categories = await fetchJSON(url);
@@ -71,12 +73,14 @@ async function deleteAllCategories(): Promise<void> {
     };
 
     // Initialize stats for each language
-    const languages = [config.mainLanguage, ...config.otherLanguages];
+    // Get languages from the export file or use defaults
+    const languages = ['en', 'lt', 'ru']; // Default languages if not specified
     languages.forEach((lang) => {
       stats.byLanguage[lang] = { total: 0, deleted: 0, failed: 0 };
     });
 
-    console.log(chalk.cyan(`🔄 Deleting all product categories from ${config.importBaseUrl}...`));
+    const importSite = getImportSite();
+    console.log(chalk.cyan(`🔄 Deleting all product categories from ${importSite.baseUrl}...`));
 
     // Get all categories in all languages
     console.log(chalk.cyan("📋 Fetching category list..."));
@@ -95,7 +99,7 @@ async function deleteAllCategories(): Promise<void> {
     const categoriesByLang: Record<string, CategoryData[]> = {};
 
     for (const category of allCategories) {
-      const lang = category.lang || config.mainLanguage;
+      const lang = category.lang || 'en'; // Default to English if language not specified
 
       // Ensure the language exists in both objects
       if (!categoriesByLang[lang]) {
@@ -172,13 +176,14 @@ async function deleteAllCategories(): Promise<void> {
 
 async function main(): Promise<void> {
   // Get site name first
-  console.log(chalk.cyan(`🔄 Connecting to: ${config.importBaseUrl}`));
+  const importSite = getImportSite();
+  console.log(chalk.cyan(`🔄 Connecting to: ${importSite.baseUrl}`));
   
   try {
-    const siteName = await getSiteName(config.importBaseUrl);
+    const siteName = await getSiteName(importSite.baseUrl);
     
     if (shouldConfirm) {
-      console.log(chalk.red.bold(`⚠️ WARNING: This will delete ALL categories from: ${chalk.white.bgRed(` ${siteName} (${config.importBaseUrl}) `)}!`));
+      console.log(chalk.red.bold(`⚠️ WARNING: This will delete ALL categories from: ${chalk.white.bgRed(` ${siteName} (${importSite.baseUrl}) `)}!`));
       console.log(chalk.yellow("Run with --confirm flag to skip this confirmation."));
       
       // Ask for explicit confirmation

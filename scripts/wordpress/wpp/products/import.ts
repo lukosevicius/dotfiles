@@ -2,9 +2,32 @@ import fs from "fs";
 import path from "path";
 import chalk from "chalk";
 import readline from "readline";
-import config from "../config";
+import fetch from "node-fetch";
+import FormData from "form-data";
+import config, { getImportSite, getExportSite } from "../config";
 import { fetchJSON, getSiteName } from "../utils/api";
 import { getFlagEmoji } from "../utils/language";
+import { decodeSlug } from "../utils/formatting";
+
+// Create temp directories for images if they don't exist
+const tempDir = path.join(__dirname, "../temp");
+const tempImagesDir = path.join(__dirname, "../temp_images");
+
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
+
+if (!fs.existsSync(tempImagesDir)) {
+  fs.mkdirSync(tempImagesDir, { recursive: true });
+}
+
+// Track image ID mappings
+const imageMapping: Record<number, number> = {};
+
+// Command line options
+const forceImport = process.argv.includes("--force-import");
+const downloadImages = process.argv.includes("--download-images");
+const skipImageDownload = process.argv.includes("--skip-image-download");
 
 interface ExportData {
   meta: {
@@ -19,6 +42,19 @@ interface ExportData {
   data: Record<string, any[]>;
 }
 
+interface ProductImage {
+  id: number;
+  src: string;
+  name?: string;
+  alt?: string;
+}
+
+interface WPErrorResponse {
+  code?: string;
+  message?: string;
+  data?: any;
+}
+
 // Track imported products for reporting
 const importStats = {
   total: 0,
@@ -26,6 +62,12 @@ const importStats = {
   skipped: 0,
   failed: 0,
   byLanguage: {} as Record<string, { total: number; created: number; skipped: number; failed: number }>,
+  images: {
+    downloaded: 0,
+    uploaded: 0,
+    skipped: 0,
+    failed: 0
+  }
 };
 
 // Map of original IDs to new IDs for translation linking
@@ -48,7 +90,8 @@ async function importProducts(): Promise<void> {
   
   // Get source and target site names
   const sourceSiteName = exportData.meta.source_site || "Unknown source site";
-  const targetSiteName = await getSiteName(config.importBaseUrl);
+  const importSite = getImportSite();
+  const targetSiteName = await getSiteName(importSite.baseUrl);
   
   console.log(chalk.cyan(`📊 Found ${Object.values(data).flat().length} products in ${Object.keys(data).length} languages`));
   
@@ -56,7 +99,16 @@ async function importProducts(): Promise<void> {
   console.log(chalk.yellow.bold(`\n⚠️ IMPORT CONFIRMATION`));
   console.log(chalk.yellow(`You are about to import products:`));
   console.log(chalk.yellow(`- FROM: ${chalk.white(sourceSiteName)} (export file)`));
-  console.log(chalk.yellow(`- TO:   ${chalk.white.bgBlue(` ${targetSiteName} (${config.importBaseUrl}) `)}`));
+  console.log(chalk.yellow(`- TO:   ${chalk.white.bgBlue(` ${targetSiteName} (${importSite.baseUrl}) `)}`));
+  
+  // Show image download settings
+  if (skipImageDownload) {
+    console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will NOT download images')} (using --skip-image-download)`));
+  } else if (downloadImages) {
+    console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download ALL images')} (using --download-images)`));
+  } else {
+    console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download only if not found locally')}`));
+  }
   
   // Skip confirmation if force-import flag is set
   if (!process.argv.includes("--force-import")) {
@@ -78,7 +130,7 @@ async function importProducts(): Promise<void> {
     console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
   }
   
-  console.log(chalk.cyan(`🔄 Importing to: ${config.importBaseUrl} (${targetSiteName})`));
+  console.log(chalk.cyan(`🔄 Importing to: ${importSite.baseUrl} (${targetSiteName})`));
   
   // Initialize stats for each language
   const allLanguages = [meta.main_language, ...meta.other_languages];
@@ -92,15 +144,15 @@ async function importProducts(): Promise<void> {
   // Import main language first
   const mainLang = meta.main_language;
   if (data[mainLang] && data[mainLang].length > 0) {
-    console.log(chalk.cyan(`\n🌐 Importing ${data[mainLang].length} products in main language: ${mainLang} ${getFlagEmoji(mainLang)}`));
-    await importProductsForLanguage(data[mainLang], mainLang);
+    console.log(chalk.cyan(`\n🌎 Importing ${data[mainLang].length} products in main language: ${mainLang} ${getFlagEmoji(mainLang)}`));
+    await importProductsForLanguage(data[mainLang], mainLang, exportData);
   }
   
   // Then import other languages
   for (const lang of meta.other_languages) {
     if (data[lang] && data[lang].length > 0) {
-      console.log(chalk.cyan(`\n🌐 Importing ${data[lang].length} products in language: ${lang} ${getFlagEmoji(lang)}`));
-      await importProductsForLanguage(data[lang], lang);
+      console.log(chalk.cyan(`\n🌎 Importing ${data[lang].length} products in language: ${lang} ${getFlagEmoji(lang)}`));
+      await importProductsForLanguage(data[lang], lang, exportData);
     }
   }
   
@@ -185,7 +237,7 @@ async function importProducts(): Promise<void> {
   }
 }
 
-async function importProductsForLanguage(products: any[], lang: string): Promise<void> {
+async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData): Promise<void> {
   let count = 0;
   
   for (const product of products) {
@@ -223,8 +275,25 @@ async function importProductsForLanguage(products: any[], lang: string): Promise
         continue;
       }
       
+      // Get the main language slug for image naming if this is a translation
+      let mainLanguageSlug = product.slug;
+      
+      // If this is a translation, try to find the original product in the main language
+      if (lang !== exportData.meta.main_language && product.translations) {
+        const mainLangId = product.translations[exportData.meta.main_language];
+        if (mainLangId) {
+          // Find the main language product by ID
+          const mainLangProduct = exportData.data[exportData.meta.main_language]?.find(
+            (p) => p.id === mainLangId
+          );
+          if (mainLangProduct) {
+            mainLanguageSlug = mainLangProduct.slug;
+          }
+        }
+      }
+      
       // Prepare product data for import
-      const productData = prepareProductData(product, lang);
+      const productData = await prepareProductData(product, lang, mainLanguageSlug);
       
       // Create or update the product
       const importedProduct = await createProduct(productData, lang);
@@ -247,7 +316,7 @@ async function importProductsForLanguage(products: any[], lang: string): Promise
   }
 }
 
-function prepareProductData(product: any, lang: string): any {
+async function prepareProductData(product: any, lang: string, mainLanguageSlug?: string): Promise<any> {
   // Create a clean copy of the product data
   const cleanProduct = { ...product };
   
@@ -260,12 +329,36 @@ function prepareProductData(product: any, lang: string): any {
   // Add language information
   cleanProduct.lang = lang;
   
+  // Process images if present
+  if (cleanProduct.images && Array.isArray(cleanProduct.images) && cleanProduct.images.length > 0) {
+    const processedImages: {id: number}[] = [];
+    
+    for (const image of cleanProduct.images as ProductImage[]) {
+      try {
+        // Use product slug for image filename (from main language if available)
+        const slugToUse = mainLanguageSlug || product.slug;
+        const newImageId = await processImage(image, slugToUse);
+        
+        if (newImageId) {
+          processedImages.push({ id: newImageId });
+        }
+      } catch (error) {
+        console.error(`Error processing image for product ${product.name}:`, error);
+      }
+    }
+    
+    if (processedImages.length > 0) {
+      cleanProduct.images = processedImages;
+    }
+  }
+  
   return cleanProduct;
 }
 
 async function findProductBySku(sku: string, lang: string): Promise<any | null> {
   try {
-    const url = `${config.importBaseUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(sku)}&lang=${lang}`;
+    const importSite = getImportSite();
+    const url = `${importSite.baseUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(sku)}&lang=${lang}`;
     const products = await fetchJSON(url);
     
     return products.length > 0 ? products[0] : null;
@@ -276,7 +369,8 @@ async function findProductBySku(sku: string, lang: string): Promise<any | null> 
 
 async function findProductBySlug(slug: string, lang: string): Promise<any | null> {
   try {
-    const url = `${config.importBaseUrl}/wp-json/wc/v3/products?slug=${encodeURIComponent(slug)}&lang=${lang}`;
+    const importSite = getImportSite();
+    const url = `${importSite.baseUrl}/wp-json/wc/v3/products?slug=${encodeURIComponent(slug)}&lang=${lang}`;
     const products = await fetchJSON(url);
     
     return products.length > 0 ? products[0] : null;
@@ -286,7 +380,8 @@ async function findProductBySlug(slug: string, lang: string): Promise<any | null
 }
 
 async function createProduct(productData: any, lang: string): Promise<any> {
-  const url = `${config.importBaseUrl}/wp-json/wc/v3/products?lang=${lang}`;
+  const importSite = getImportSite();
+  const url = `${importSite.baseUrl}/wp-json/wc/v3/products?lang=${lang}`;
   
   return await fetchJSON(url, {
     method: "POST",
@@ -295,12 +390,297 @@ async function createProduct(productData: any, lang: string): Promise<any> {
 }
 
 async function createTranslationRelationship(translationData: Record<string, number>): Promise<void> {
-  const url = `${config.importBaseUrl}/wp-json/wpml/v1/products/connect`;
+  const importSite = getImportSite();
+  const url = `${importSite.baseUrl}/wp-json/wpml/v1/products/connect`;
   
   await fetchJSON(url, {
     method: "POST",
     body: JSON.stringify(translationData)
   });
+}
+
+/**
+ * Download an image from a URL
+ */
+async function downloadImage(imageUrl: string, fileName: string): Promise<string> {
+  try {
+    // If --skip-image-download is set, don't download images
+    if (skipImageDownload) {
+      console.log(`  Skipping image download (--skip-image-download): ${fileName}`);
+      return "";
+    }
+    
+    // First check if the image already exists in temp_images directory
+    const tempImagesPath = path.join(tempImagesDir, fileName);
+    if (fs.existsSync(tempImagesPath)) {
+      console.log(`  Image already exists in temp_images: ${fileName}`);
+      return tempImagesPath;
+    }
+    
+    // If not in temp_images and not using --download-images, skip download unless forced
+    if (!downloadImages && !fs.existsSync(tempImagesPath)) {
+      // Only download if explicitly requested or if no local copy exists
+      console.log(`  Image not found locally, downloading: ${fileName}`);
+    }
+    
+    // Create a file path in the temp directory
+    const filePath = path.join(tempDir, fileName);
+    
+    // Try to download the image
+    const response = await fetch(imageUrl, { timeout: 30000 });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+    }
+    
+    // Get the image data
+    const imageBuffer = await response.buffer();
+    
+    // Save the image to disk
+    fs.writeFileSync(filePath, imageBuffer);
+    
+    return filePath;
+  } catch (error) {
+    console.error(`Error downloading image ${fileName}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Upload an image to WordPress
+ */
+async function uploadImage(filePath: string, fileName: string): Promise<number> {
+  try {
+    console.log(`Uploading image: ${fileName}`);
+    
+    // Check if file exists and has content
+    const stats = fs.statSync(filePath);
+    if (stats.size < 100) { // Minimum reasonable size for an image
+      throw new Error(`File is too small (${stats.size} bytes), likely not a valid image`);
+    }
+    
+    // Get file extension and ensure it's valid
+    let fileExt = path.extname(filePath).toLowerCase();
+    
+    // If extension is not valid, create a copy with .jpg extension
+    if (!['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(fileExt)) {
+      const newFilePath = `${filePath}.jpg`;
+      fs.copyFileSync(filePath, newFilePath);
+      filePath = newFilePath;
+      fileExt = '.jpg';
+      console.log(`  Converted to .jpg format: ${path.basename(newFilePath)}`);
+    }
+    
+    // Determine mime type based on extension
+    let mimeType = "image/jpeg"; // Default
+    if (fileExt === ".png") mimeType = "image/png";
+    if (fileExt === ".gif") mimeType = "image/gif";
+    if (fileExt === ".webp") mimeType = "image/webp";
+    
+    // Create form data
+    const form = new FormData();
+    // Use the provided filename or fallback to the path basename
+    const uploadFilename = fileName || path.basename(filePath);
+    form.append("file", fs.createReadStream(filePath), {
+      filename: uploadFilename,
+      contentType: mimeType
+    });
+    
+    // Try to upload with a longer timeout
+    const importSite = getImportSite();
+    const response = await fetch(
+      `${importSite.baseUrl}/wp-json/wp/v2/media`,
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            "Basic " +
+            Buffer.from(
+              `${importSite.username}:${importSite.password}`
+            ).toString("base64"),
+          // Don't set Content-Type header - FormData will set it with the boundary
+        },
+        body: form,
+        timeout: 60000, // 60 second timeout for larger files
+      }
+    );
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorDetails: string | any = "";
+      
+      try {
+        errorDetails = JSON.parse(errorText);
+      } catch (e) {
+        errorDetails = errorText;
+      }
+      
+      // If we get a 500 error about file types, try alternative upload method
+      if (response.status === 500 && 
+          typeof errorDetails === 'object' && 
+          errorDetails.message && 
+          (errorDetails.message.includes("negalite įkelti tokio tipo failų") || 
+           errorDetails.message.includes("cannot upload this file type"))) {
+        console.log("  Trying alternative upload method...");
+        return await uploadImageAlternative(filePath, fileName);
+      }
+      
+      throw new Error(
+        `Failed to upload image: ${response.status} ${response.statusText}\nDetails: ${JSON.stringify(
+          errorDetails
+        )}`
+      );
+    }
+    
+    const data = await response.json();
+    console.log(`  Success! Uploaded as ID: ${data.id}`);
+    return data.id;
+  } catch (error) {
+    console.error(`Error uploading image ${fileName}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Alternative upload method using WP REST API with different endpoint
+ */
+async function uploadImageAlternative(
+  filePath: string,
+  fileName: string
+): Promise<number> {
+  try {
+    console.log(`  Using alternative upload method for: ${fileName}`);
+    
+    // Convert image to base64
+    const imageBuffer = fs.readFileSync(filePath);
+    const base64Image = imageBuffer.toString('base64');
+    
+    // Get file extension and ensure it's valid
+    const fileExt = path.extname(filePath).toLowerCase();
+    
+    // Determine mime type based on extension
+    let mimeType = "image/jpeg"; // Default
+    if (fileExt === ".png") mimeType = "image/png";
+    if (fileExt === ".gif") mimeType = "image/gif";
+    if (fileExt === ".webp") mimeType = "image/webp";
+    
+    // Try to upload using WP REST API media endpoint with JSON payload
+    const importSite = getImportSite();
+    const response = await fetch(
+      `${importSite.baseUrl}/wp-json/wp/v2/media`,
+      {
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          Authorization:
+            "Basic " +
+            Buffer.from(
+              `${importSite.username}:${importSite.password}`
+            ).toString("base64"),
+        },
+        body: JSON.stringify({
+          file: {
+            filename: fileName || path.basename(filePath),
+            data: base64Image,
+            mime_type: mimeType
+          },
+          title: fileName,
+          alt_text: fileName
+        }),
+        timeout: 60000, // 60 second timeout
+      }
+    );
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorDetails: string | any = "";
+      
+      try {
+        errorDetails = JSON.parse(errorText);
+      } catch (e) {
+        errorDetails = errorText;
+      }
+      
+      throw new Error(
+        `Failed to upload image (alternative method): ${response.status} ${response.statusText}\nDetails: ${JSON.stringify(
+          errorDetails
+        )}`
+      );
+    }
+    
+    const data = await response.json();
+    console.log(`  Success! Uploaded as ID: ${data.id} (alternative method)`);
+    return data.id;
+  } catch (error) {
+    console.error(`Error uploading image ${fileName} (alternative method):`, error);
+    throw error;
+  }
+}
+
+/**
+ * Process an image - download from source and upload to target
+ */
+async function processImage(image: any, productSlug?: string): Promise<number | null> {
+  try {
+    if (!image || !image.src) {
+      console.log("  No image source provided");
+      return null;
+    }
+    
+    // If --skip-image-download is set and no image exists locally, skip processing
+    if (skipImageDownload && !downloadImages) {
+      const imageName = productSlug ? `${productSlug}${path.extname(path.basename(image.src))}` : path.basename(image.src);
+      const tempImagesPath = path.join(tempImagesDir, imageName);
+      
+      if (!fs.existsSync(tempImagesPath)) {
+        console.log(`  Skipping image processing (--skip-image-download): ${imageName}`);
+        importStats.images.skipped++;
+        return null;
+      }
+    }
+
+    // Check if we already processed this image ID
+    if (image.id && imageMapping[image.id]) {
+      console.log(
+        `  Image already processed (ID: ${image.id} → ${imageMapping[image.id]})`
+      );
+      importStats.images.skipped++;
+      return imageMapping[image.id];
+    }
+
+    // Use product slug as the filename if provided, otherwise extract from URL
+    let imageName = path.basename(image.src);
+    const fileExtension = path.extname(imageName).toLowerCase();
+    
+    if (productSlug) {
+      // Use the product slug as the filename
+      const decodedSlug = decodeSlug(productSlug);
+      imageName = `${productSlug}${fileExtension}`;
+      console.log(`Downloading image: ${imageName} (renamed from original for product: ${decodedSlug})`);
+    } else {
+      console.log(`Downloading image: ${imageName}`);
+    }
+
+    // Download the image
+    const filePath = await downloadImage(image.src, imageName);
+    importStats.images.downloaded++;
+
+    // Upload the image
+    const newImageId = await uploadImage(filePath, imageName);
+    importStats.images.uploaded++;
+
+    // Store the mapping
+    if (image.id) {
+      imageMapping[image.id] = newImageId;
+    }
+
+    return newImageId;
+  } catch (error) {
+    console.error("Error processing image:", error);
+    importStats.images.failed++;
+    return null;
+  }
 }
 
 // Run the script

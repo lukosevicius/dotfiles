@@ -79,6 +79,15 @@ const config: Config = {
   // Site profiles
   sites: [
     {
+      name: "7IN",
+      description: "New-7IN",
+      baseUrl: "http://7in.local",
+      username: "mantas",
+      password: "qbvD 5eqy VCyc XuxK ghja mM6Y",
+      mainLanguage: "lt",
+      otherLanguages: ["en", "lv", "ru", "de"],
+    },
+    {
       name: "7in-with-products",
       baseUrl: "http://7in-with-products.local",
       username: "mantas",
@@ -114,9 +123,9 @@ const config: Config = {
     {
       name: "Production",
       description: "Production environment",
-      baseUrl: "https://production.example.com",
-      username: "production_user",
-      password: "production_password",
+      baseUrl: "https://7ievosnamai.lt/",
+      username: "sandelis",
+      password: "Qwej cH6Y Hkar sdGq c6Q5 73s9",
       mainLanguage: "lt",
       otherLanguages: ["en", "lv", "ru", "de"],
     },

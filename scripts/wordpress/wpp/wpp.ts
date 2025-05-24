@@ -32,6 +32,9 @@ const productImportScript = path.join(__dirname, "products/import.ts");
 const productDeleteScript = path.join(__dirname, "products/delete.ts");
 const productTestScript = path.join(__dirname, "products/test.ts");
 
+// Utility scripts
+const downloadImagesScript = path.join(__dirname, "utils/download-images.ts");
+
 // Define content types
 type ContentType = "categories" | "products";
 let selectedContentType: ContentType = "categories"; // Default
@@ -169,13 +172,14 @@ program
         process.exit(1);
       }
       
+      const importSite = getImportSite();
       displayHeader(`Deleting ${contentTypeName}`);
       
       // Check if confirmation is needed
       if (!options.confirm) {
         console.log(
           chalk.yellow.bold("⚠️  WARNING: ") + 
-          chalk.yellow(`This will delete ALL ${selectedContentType} from the WordPress site.`)
+          chalk.yellow(`This will delete ALL ${selectedContentType} from ${chalk.white.bgBlue(` ${importSite.name} (${importSite.baseUrl}) `)}`)
         );
         console.log(
           chalk.yellow("This action cannot be undone. Make sure you have a backup if needed.")
@@ -195,7 +199,7 @@ program
       
       // Run the delete script with the confirm flag
       await runScript(scriptPath, ["--confirm"]);
-      console.log(chalk.green.bold(`✓ ${contentTypeName} deletion completed successfully!`));
+      console.log(chalk.green.bold(`✓ ${contentTypeName} deletion from ${importSite.name} completed successfully!`));
     } catch (error) {
       console.error(chalk.red.bold("✗ Deletion failed:"), error);
       process.exit(1);
@@ -347,8 +351,12 @@ async function showOperationsMenu(): Promise<void> {
   const operations = [
     { id: "sites", name: "Manage sites", description: "View and manage WordPress sites" },
     { id: "export", name: `Export ${selectedContentType}`, description: `Export ${selectedContentType} from ${chalk.green(exportSite.name)}` },
+    { id: "download-images", name: `Download images only`, description: `Download all images without importing` },
+    { id: "download-images-force", name: `Force download all images`, description: `Download all images (overwrite existing)` },
     { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to ${chalk.blue(importSite.name)}` },
-    { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from a WordPress site` },
+    { id: "import-with-images", name: `Import with images`, description: `Import and download all images (--download-images)` },
+    { id: "import-no-images", name: `Import without images`, description: `Import using only local images (--skip-image-download)` },
+    { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from ${getImportSite().name}` },
     { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
     { id: "complete", name: "Complete workflow", description: "Run the complete export-test-import workflow" },
     { id: "select-type", name: "Change content type", description: "Select a different content type to manage" },
@@ -396,7 +404,60 @@ async function showOperationsMenu(): Promise<void> {
     return;
   }
   
-  // Execute the selected operation
+  // Handle image download options
+  if (selectedOperation.id === "download-images" || selectedOperation.id === "download-images-force") {
+    // Check if script exists
+    if (!fs.existsSync(downloadImagesScript)) {
+      console.error(chalk.red(`Download images script not found at: ${downloadImagesScript}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(downloadImagesScript)} script first.`));
+      process.exit(1);
+    }
+    
+    const contentTypeFlag = selectedContentType === "categories" ? "--categories" : "--products";
+    const forceFlag = selectedOperation.id === "download-images-force" ? "--force" : "";
+    
+    displayHeader(`Downloading ${selectedContentType} Images`);
+    await runScript(downloadImagesScript, [contentTypeFlag, forceFlag].filter(Boolean));
+    console.log(chalk.green.bold(`✓ Image download completed successfully!`));
+    return;
+  }
+  
+  // Handle special import options
+  if (selectedOperation.id === "import-with-images") {
+    const scriptPath = selectedContentType === "categories" ? categoryImportScript : productImportScript;
+    const contentTypeName = selectedContentType === "categories" ? "Categories" : "Products";
+    
+    // Check if script exists
+    if (!fs.existsSync(scriptPath)) {
+      console.error(chalk.red(`Import script for ${selectedContentType} not found at: ${scriptPath}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(scriptPath)} script first.`));
+      process.exit(1);
+    }
+    
+    displayHeader(`Importing ${contentTypeName} with Images`);
+    await runScript(scriptPath, ["--download-images"]);
+    console.log(chalk.green.bold(`✓ ${contentTypeName} import with images completed successfully!`));
+    return;
+  }
+  
+  if (selectedOperation.id === "import-no-images") {
+    const scriptPath = selectedContentType === "categories" ? categoryImportScript : productImportScript;
+    const contentTypeName = selectedContentType === "categories" ? "Categories" : "Products";
+    
+    // Check if script exists
+    if (!fs.existsSync(scriptPath)) {
+      console.error(chalk.red(`Import script for ${selectedContentType} not found at: ${scriptPath}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(scriptPath)} script first.`));
+      process.exit(1);
+    }
+    
+    displayHeader(`Importing ${contentTypeName} without Images`);
+    await runScript(scriptPath, ["--skip-image-download"]);
+    console.log(chalk.green.bold(`✓ ${contentTypeName} import without images completed successfully!`));
+    return;
+  }
+  
+  // Execute the standard operation
   await program.parseAsync([process.argv[0], process.argv[1], selectedOperation.id]);
 }
 
