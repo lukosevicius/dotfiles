@@ -34,6 +34,7 @@ const productTestScript = path.join(__dirname, "products/test.ts");
 
 // Utility scripts
 const downloadImagesScript = path.join(__dirname, "utils/download-images.ts");
+const convertToWebpScript = path.join(__dirname, "utils/convert-to-webp.ts");
 
 // Define content types
 type ContentType = "categories" | "products";
@@ -353,6 +354,7 @@ async function showOperationsMenu(): Promise<void> {
     { id: "export", name: `Export ${selectedContentType}`, description: `Export ${selectedContentType} from ${chalk.green(exportSite.name)}` },
     { id: "download-images", name: `Download images only`, description: `Download all images without importing` },
     { id: "download-images-force", name: `Force download all images`, description: `Download all images (overwrite existing)` },
+    { id: "convert-to-webp", name: `Convert images to WebP`, description: `Convert downloaded images to WebP format` },
     { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to ${chalk.blue(importSite.name)}` },
     { id: "import-with-images", name: `Import with images`, description: `Import and download all images (--download-images)` },
     { id: "import-no-images", name: `Import without images`, description: `Import using only local images (--skip-image-download)` },
@@ -419,6 +421,38 @@ async function showOperationsMenu(): Promise<void> {
     displayHeader(`Downloading ${selectedContentType} Images`);
     await runScript(downloadImagesScript, [contentTypeFlag, forceFlag].filter(Boolean));
     console.log(chalk.green.bold(`✓ Image download completed successfully!`));
+    return;
+  }
+  
+  // Handle WebP conversion
+  if (selectedOperation.id === "convert-to-webp") {
+    // Check if script exists
+    if (!fs.existsSync(convertToWebpScript)) {
+      console.error(chalk.red(`WebP conversion script not found at: ${convertToWebpScript}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(convertToWebpScript)} script first.`));
+      process.exit(1);
+    }
+    
+    const contentTypeFlag = selectedContentType === "categories" ? "--categories" : "--products";
+    
+    // Ask for quality setting
+    const rlQuality = createPrompt();
+    const qualityAnswer = await new Promise<string>((resolve) => {
+      rlQuality.question(chalk.cyan("\nEnter WebP quality (10-100, default: 80): "), resolve);
+    });
+    rlQuality.close();
+    
+    let qualityFlag: string[] = [];
+    if (qualityAnswer && !isNaN(parseInt(qualityAnswer))) {
+      const quality = parseInt(qualityAnswer);
+      if (quality >= 10 && quality <= 100) {
+        qualityFlag = ["--quality", quality.toString()];
+      }
+    }
+    
+    displayHeader(`Converting Images to WebP`);
+    await runScript(convertToWebpScript, [contentTypeFlag, ...qualityFlag].filter(Boolean));
+    console.log(chalk.green.bold(`✓ WebP conversion completed successfully!`));
     return;
   }
   

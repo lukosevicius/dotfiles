@@ -125,9 +125,6 @@ async function downloadImage(
     return "";
   }
   // Create temp directories for downloaded images
-  const tempImageDir = path.join(__dirname, "../temp");
-  const tempImagesDir = path.join(__dirname, "../temp_images");
-
   if (!fs.existsSync(tempImageDir)) {
     fs.mkdirSync(tempImageDir, { recursive: true });
   }

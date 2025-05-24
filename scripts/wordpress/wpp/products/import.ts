@@ -11,7 +11,7 @@ import { decodeSlug } from "../utils/formatting";
 
 // Create temp directories for images if they don't exist
 const tempDir = path.join(__dirname, "../temp");
-const tempImagesDir = path.join(__dirname, "../temp_images");
+const tempImagesDir = path.join(config.outputDir, "temp_images");
 
 if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir, { recursive: true });

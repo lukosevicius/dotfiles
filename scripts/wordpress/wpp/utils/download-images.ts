@@ -12,8 +12,8 @@ import config, { getExportSite } from "../config";
 import { getFlagEmoji } from "./language";
 import { decodeSlug } from "./formatting";
 
-// Create temp directories for images if they don't exist
-const tempImagesDir = path.join(__dirname, "../temp_images");
+// Create temp_images directory in the export folder if it doesn't exist
+const tempImagesDir = path.join(config.outputDir, "temp_images");
 
 if (!fs.existsSync(tempImagesDir)) {
   fs.mkdirSync(tempImagesDir, { recursive: true });
