@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 import { fetchJSON, fetchAllPages, getSiteName } from "../utils/api";
-import config from "../config";
+import config, {
+  getExportBaseUrl,
+  getMainLanguage,
+  getOtherLanguages
+} from "../config";
 import { getFlagEmoji } from "../utils/language";
 
 // Type for the export data structure
@@ -25,14 +29,15 @@ async function exportProducts(): Promise<void> {
   }
 
   // Get site name
-  const sourceSiteName = await getSiteName(config.exportBaseUrl);
+  const exportBaseUrl = getExportBaseUrl();
+  const sourceSiteName = await getSiteName(exportBaseUrl);
 
-  console.log(`🔄 Exporting products from: ${config.exportBaseUrl} (${sourceSiteName})`);
+  console.log(`🔄 Exporting products from: ${exportBaseUrl} (${sourceSiteName})`);
   console.log("🔍 Fetching products from WooCommerce API...");
 
   // Step 1: Fetch all products in all languages to get translation information
   const allProducts = await fetchAllPages(
-    `${config.exportBaseUrl}/wp-json/wc/v3/products?lang=all`
+    `${exportBaseUrl}/wp-json/wc/v3/products?lang=all`
   );
 
   console.log(`✅ Fetched ${allProducts.length} products in total`);
@@ -62,14 +67,17 @@ async function exportProducts(): Promise<void> {
   const translationMap: Record<string, Record<string, number>> = {};
 
   // Initialize language buckets
-  productsByLang[config.mainLanguage] = [];
-  for (const lang of config.otherLanguages) {
+  const mainLanguage = getMainLanguage();
+  const otherLanguages = getOtherLanguages();
+  
+  productsByLang[mainLanguage] = [];
+  for (const lang of otherLanguages) {
     productsByLang[lang] = [];
   }
 
   // Process each product
   for (const product of allProducts) {
-    const productLang = product.lang || config.mainLanguage;
+    const productLang = product.lang || mainLanguage;
 
     // Filter out yoast_head and yoast_head_json fields
     const filteredProduct = { ...product };
@@ -122,8 +130,8 @@ async function exportProducts(): Promise<void> {
   const exportData: ExportData = {
     meta: {
       exported_at: new Date().toISOString(),
-      main_language: config.mainLanguage,
-      other_languages: config.otherLanguages,
+      main_language: mainLanguage,
+      other_languages: otherLanguages,
       source_site: sourceSiteName, // Include source site name
     },
     translations: {

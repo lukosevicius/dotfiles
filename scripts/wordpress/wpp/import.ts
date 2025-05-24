@@ -2,7 +2,12 @@ import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
 import FormData from "form-data";
-import config from "./config";
+import config, {
+  getImportBaseUrl,
+  getExportBaseUrl,
+  getImportCredentials,
+  getExportCredentials
+} from "./config";
 import { getFlagEmoji } from "./utils/language";
 
 // Type for the export data structure
@@ -51,9 +56,14 @@ const tempImageDir = path.join(config.outputDir, "temp_images");
 
 async function fetchJSON(url: string, options: any = {}): Promise<any> {
   // Determine which credentials to use based on the URL
-  const isImportUrl = url.includes(config.importBaseUrl);
-  const username = isImportUrl ? config.importUsername : config.exportUsername;
-  const password = isImportUrl ? config.importPassword : config.exportPassword;
+  const importBaseUrl = getImportBaseUrl();
+  const exportBaseUrl = getExportBaseUrl();
+  const importCreds = getImportCredentials();
+  const exportCreds = getExportCredentials();
+  
+  const isImportUrl = url.includes(importBaseUrl);
+  const username = isImportUrl ? importCreds.username : exportCreds.username;
+  const password = isImportUrl ? importCreds.password : exportCreds.password;
 
   const res = await fetch(url, {
     headers: {
@@ -190,14 +200,14 @@ async function uploadImage(
 
     // Try to upload with a longer timeout
     const response = await fetch(
-      `${config.importBaseUrl}/wp-json/wp/v2/media`,
+      `${getImportBaseUrl()}/wp-json/wp/v2/media`,
       {
         method: "POST",
         headers: {
           Authorization:
             "Basic " +
             Buffer.from(
-              `${config.importUsername}:${config.importPassword}`
+              `${getImportCredentials().username}:${getImportCredentials().password}`
             ).toString("base64"),
           // Don't set Content-Type header - FormData will set it with the boundary
         },
@@ -325,7 +335,7 @@ async function categoryExists(
 ): Promise<number | null> {
   try {
     const response = await fetchJSON(
-      `${config.importBaseUrl}/wp-json/wc/v3/products/categories?slug=${slug}&lang=${lang}`
+      `${getImportBaseUrl()}/wp-json/wc/v3/products/categories?slug=${slug}&lang=${lang}`
     );
 
     if (response && response.length > 0) {
@@ -381,9 +391,9 @@ async function importCategories(): Promise<void> {
   const otherLanguages = meta.other_languages;
 
   // Get site name
-  const siteName = await getSiteName(config.importBaseUrl);
+  const siteName = await getSiteName(getImportBaseUrl());
 
-  console.log(`🔄 Importing to: ${config.importBaseUrl} (${siteName})`);
+  console.log(`🔄 Importing to: ${getImportBaseUrl()} (${siteName})`);
   console.log(
     `Main language: ${mainLanguage}, Other languages: ${otherLanguages.join(
       ", "
