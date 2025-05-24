@@ -5,6 +5,7 @@ import readline from "readline";
 import { spawn } from "child_process";
 import config from "../config";
 import chalk from "chalk";
+import { decodeSlug } from "../utils/formatting";
 
 interface ExportData {
   meta: {
@@ -18,22 +19,7 @@ interface ExportData {
   data: Record<string, any[]>;
 }
 
-/**
- * Decodes URL-encoded strings for display in terminal
- */
-function decodeSlug(slug: string): string {
-  try {
-    // First try to decode as URI component
-    const decoded = decodeURIComponent(slug);
-    
-    // For Russian Cyrillic characters, ensure proper decoding
-    // This helps with displaying Cyrillic characters correctly in the terminal
-    return decoded;
-  } catch (error) {
-    // If decoding fails, return the original string
-    return slug;
-  }
-}
+// Using decodeSlug from utils/formatting
 
 function loadData(filePath: string): ExportData {
   const raw = fs.readFileSync(filePath, "utf-8");
@@ -91,7 +77,9 @@ function visualizeTranslationRelationships(exportData: ExportData) {
       const langMap = translations.wpml[slug];
       
       // Format the row with proper padding
-      const slugCell = slug.padEnd(40);
+      // Decode the slug for display to make Russian text readable
+      const decodedSlug = decodeSlug(slug);
+      const slugCell = decodedSlug.padEnd(40);
       const idCells = [
         (langMap[mainLanguage] || "-").toString().padEnd(8),
         ...otherLanguages.map(lang => (langMap[lang] || "-").toString().padEnd(8))
@@ -126,7 +114,9 @@ function visualizeTranslationRelationships(exportData: ExportData) {
         const langMap = translations.wpml[slug];
         
         // Format the row with proper padding
-        const slugCell = slug.padEnd(40);
+        // Decode the slug for display to make Russian text readable
+        const decodedSlug = decodeSlug(slug);
+        const slugCell = decodedSlug.padEnd(40);
         const idCells = [
           "-".padEnd(8), // Main language is missing
           ...otherLanguages.map(lang => (langMap[lang] || "-").toString().padEnd(8))
