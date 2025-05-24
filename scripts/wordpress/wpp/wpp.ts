@@ -11,6 +11,15 @@ import { spawn } from "child_process";
 import readline from "readline";
 import fs from "fs";
 import { displayHeader as formatHeader } from "./shared/utils/formatting";
+import config, {
+  getSiteByName,
+  getSiteByIndex,
+  getExportSite,
+  getImportSite,
+  setExportSite,
+  setImportSite,
+  listSites
+} from "./shared/config";
 
 // Define script paths
 const categoryExportScript = path.join(__dirname, "categories/export.ts");
@@ -314,13 +323,18 @@ async function showOperationsMenu(): Promise<void> {
   const contentTypeName = selectedContentType === "categories" ? "Product Categories" : "Products";
   displayHeader(`WordPress ${contentTypeName} Management Tool`);
   
+  // Get current sites
+  const exportSite = getExportSite();
+  const importSite = getImportSite();
+  
   // Define available operations
   const operations = [
-    { id: "export", name: `Export ${selectedContentType}`, description: `Export ${selectedContentType} from a WordPress site` },
-    { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to a WordPress site` },
+    { id: "export", name: `Export ${selectedContentType}`, description: `Export ${selectedContentType} from ${chalk.green(exportSite.name)}` },
+    { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to ${chalk.blue(importSite.name)}` },
     { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from a WordPress site` },
     { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
     { id: "complete", name: "Complete workflow", description: "Run the complete export-test-import workflow" },
+    { id: "sites", name: "Manage sites", description: "View and manage WordPress sites" },
     { id: "select-type", name: "Change content type", description: "Select a different content type to manage" },
     { id: "exit", name: "Exit", description: "Exit the program" },
   ];
@@ -370,6 +384,161 @@ async function showOperationsMenu(): Promise<void> {
   await program.parseAsync([process.argv[0], process.argv[1], selectedOperation.id]);
 }
 
+/**
+ * Interactive site management menu
+ */
+async function manageSites(): Promise<void> {
+  try {
+    displayHeader("Site Management");
+    
+    // Get current sites
+    const sites = listSites();
+    const exportSite = getExportSite();
+    const importSite = getImportSite();
+    
+    // Display current settings
+    console.log(chalk.cyan("Current settings:"));
+    console.log(chalk.green(`Export site: ${chalk.bold(exportSite.name)} (${exportSite.baseUrl})`));
+    console.log(chalk.blue(`Import site: ${chalk.bold(importSite.name)} (${importSite.baseUrl})`));
+    console.log();
+    
+    // Define available operations
+    const operations = [
+      { id: "list", name: "List all sites", description: "View all available WordPress sites" },
+      { id: "export", name: "Change export site", description: "Select a different site for export operations" },
+      { id: "import", name: "Change import site", description: "Select a different site for import operations" },
+      { id: "back", name: "Back to main menu", description: "Return to the main operations menu" },
+    ];
+    
+    // Display menu options
+    console.log(chalk.cyan("Site management options:\n"));
+    operations.forEach((op, index) => {
+      console.log(
+        chalk.green(`${index + 1}. `) + 
+        chalk.bold(op.name) + 
+        chalk.dim(` - ${op.description}`)
+      );
+    });
+    
+    // Get user selection
+    const rl = createPrompt();
+    const answer = await new Promise<string>((resolve) => {
+      rl.question(chalk.cyan("\nEnter the number of the operation you want to perform: "), resolve);
+    });
+    rl.close();
+    
+    const selectedIndex = parseInt(answer) - 1;
+    if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= operations.length) {
+      console.error(
+        chalk.red(`Invalid selection. Please enter a number between 1 and ${operations.length}`)
+      );
+      return await manageSites(); // Try again
+    }
+    
+    const selectedOperation = operations[selectedIndex];
+    
+    // Handle the selected operation
+    switch (selectedOperation.id) {
+      case "list":
+        await program.parseAsync([process.argv[0], process.argv[1], "sites"]);
+        await manageSites(); // Return to site management menu
+        break;
+        
+      case "export":
+        await selectSite("export");
+        await manageSites(); // Return to site management menu
+        break;
+        
+      case "import":
+        await selectSite("import");
+        await manageSites(); // Return to site management menu
+        break;
+        
+      case "back":
+        await showOperationsMenu();
+        break;
+    }
+  } catch (error) {
+    console.error(chalk.red.bold("✗ Error in site management:"), error);
+    process.exit(1);
+  }
+}
+
+/**
+ * Interactive site selection
+ */
+async function selectSite(type: "export" | "import"): Promise<void> {
+  try {
+    const sitesList = listSites();
+    const currentSite = type === "export" ? getExportSite() : getImportSite();
+    
+    displayHeader(`Select ${type === "export" ? "Export" : "Import"} Site`);
+    console.log(chalk.cyan(`Current ${type} site: ${chalk.bold(currentSite.name)} (${currentSite.baseUrl})\n`));
+    
+    // Display available sites
+    console.log(chalk.cyan("Available sites:\n"));
+    sitesList.forEach((siteInfo, index) => {
+      const isCurrent = siteInfo.name === currentSite.name;
+      const marker = isCurrent ? chalk.green('✓ ') : '  ';
+      
+      // Get the full site object to access baseUrl
+      const site = getSiteByName(siteInfo.name);
+      
+      // Format the name with proper chalk styling
+      let nameDisplay;
+      if (isCurrent) {
+        nameDisplay = chalk.green.bold(siteInfo.name);
+      } else {
+        nameDisplay = siteInfo.name;
+      }
+      
+      console.log(
+        `${marker}${index + 1}. ${nameDisplay} - ${site ? site.baseUrl : 'unknown'}${siteInfo.description ? ` (${site?.description || ''})` : ''}`
+      );
+    });
+    
+    // Get user selection
+    const rl = createPrompt();
+    const answer = await new Promise<string>((resolve) => {
+      rl.question(chalk.cyan(`\nEnter the number of the site to use for ${type} operations: `), resolve);
+    });
+    rl.close();
+    
+    if (answer.trim() === "") {
+      console.log(chalk.blue("No changes made."));
+      return;
+    }
+    
+    const selectedIndex = parseInt(answer) - 1;
+    if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= sitesList.length) {
+      console.error(
+        chalk.red(`Invalid selection. Please enter a number between 1 and ${sitesList.length}`)
+      );
+      return await selectSite(type); // Try again
+    }
+    
+    const selectedSiteInfo = sitesList[selectedIndex];
+    const selectedSite = getSiteByName(selectedSiteInfo.name);
+    
+    // Set the selected site
+    if (!selectedSite) {
+      console.error(chalk.red.bold(`✗ Error: Site '${selectedSiteInfo.name}' not found in configuration`));
+      return;
+    }
+    
+    if (type === "export") {
+      setExportSite(selectedSiteInfo.name);
+      console.log(chalk.green.bold(`✓ Export site set to: `) + chalk.white.bold(selectedSite.name) + ` (${selectedSite.baseUrl})`);
+    } else {
+      setImportSite(selectedSiteInfo.name);
+      console.log(chalk.green.bold(`✓ Import site set to: `) + chalk.white.bold(selectedSite.name) + ` (${selectedSite.baseUrl})`);
+    }
+  } catch (error) {
+    console.error(chalk.red.bold(`✗ Error selecting ${type} site:`), error);
+    process.exit(1);
+  }
+}
+
 // Test command
 program
   .command("test")
@@ -403,6 +572,8 @@ program
   .option("--skip-test", "Skip the test step")
   .option("--skip-import", "Skip the import step")
   .option("--force-import", "Force import without confirmation")
+  .option("--export-site <name>", "Site to use for export")
+  .option("--import-site <name>", "Site to use for import")
   .action(async (options) => {
     try {
       const exportScriptPath = selectedContentType === "categories" ? categoryExportScript : productExportScript;
@@ -423,11 +594,32 @@ program
         process.exit(1);
       }
       
+      // Set export/import sites if provided
+      if (options.exportSite) {
+        const site = setExportSite(options.exportSite);
+        if (!site) {
+          console.error(chalk.red.bold(`✗ Export site not found: ${options.exportSite}`));
+          process.exit(1);
+        }
+      }
+      
+      if (options.importSite) {
+        const site = setImportSite(options.importSite);
+        if (!site) {
+          console.error(chalk.red.bold(`✗ Import site not found: ${options.importSite}`));
+          process.exit(1);
+        }
+      }
+      
+      // Get current sites
+      const exportSite = getExportSite();
+      const importSite = getImportSite();
+      
       // Display configuration summary
       displayHeader("Configuration Summary");
       console.log(chalk.cyan(`Content type: ${chalk.bold(selectedContentType)}`));
-      console.log(chalk.cyan(`Export from: ${chalk.bold(path.basename(exportScriptPath))}`));
-      console.log(chalk.cyan(`Import to: ${chalk.bold(path.basename(importScriptPath))}`));
+      console.log(chalk.cyan(`Export site: ${chalk.bold(exportSite.name)} (${exportSite.baseUrl})`));
+      console.log(chalk.cyan(`Import site: ${chalk.bold(importSite.name)} (${importSite.baseUrl})`));
       
       // Step 1: Export
       if (!options.skipExport) {
@@ -483,6 +675,111 @@ program
       process.exit(1);
     }
   });
+
+// Site management commands
+program
+  .command("sites")
+  .description("List all available sites")
+  .action(async () => {
+    try {
+      displayHeader("Available Sites");
+      const sites = listSites();
+      const exportSite = getExportSite();
+      const importSite = getImportSite();
+      
+      sites.forEach(site => {
+        const isExport = site.name === exportSite.name;
+        const isImport = site.name === importSite.name;
+        let marker = '  ';
+        
+        if (isExport && isImport) {
+          marker = chalk.magenta('⇄ ');
+        } else if (isExport) {
+          marker = chalk.green('↑ ');
+        } else if (isImport) {
+          marker = chalk.blue('↓ ');
+        }
+        
+        let name;
+        if (isExport && isImport) {
+          name = chalk.magenta.bold(site.name);
+        } else if (isExport) {
+          name = chalk.green.bold(site.name);
+        } else if (isImport) {
+          name = chalk.blue.bold(site.name);
+        } else {
+          name = site.name;
+        }
+        
+        console.log(`${marker}${site.index}: ${name} ${site.description ? `- ${site.description}` : ''}`);
+      });
+      
+      console.log(`\n${chalk.green('↑')} = Export site, ${chalk.blue('↓')} = Import site, ${chalk.magenta('⇄')} = Both`);
+      console.log(`Use ${chalk.cyan('wpp set-export-site <name>')} and ${chalk.cyan('wpp set-import-site <name>')} to change settings.`);
+    } catch (error) {
+      console.error(chalk.red.bold("✗ Error listing sites:"), error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("set-export-site <name>")
+  .description("Set the site to use for export operations")
+  .action(async (name) => {
+    try {
+      const site = setExportSite(name);
+      if (site) {
+        console.log(chalk.green.bold(`✓ Export site set to: ${chalk.white(site.name)} (${site.baseUrl})`));
+      } else {
+        console.error(chalk.red.bold(`✗ Site not found: ${name}`));
+        console.log(chalk.yellow("Available sites:"));
+        listSites().forEach(site => {
+          console.log(`  - ${site.name}`);
+        });
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error(chalk.red.bold("✗ Error setting export site:"), error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("set-import-site <name>")
+  .description("Set the site to use for import operations")
+  .action(async (name) => {
+    try {
+      const site = setImportSite(name);
+      if (site) {
+        console.log(chalk.green.bold(`✓ Import site set to: ${chalk.white(site.name)} (${site.baseUrl})`));
+      } else {
+        console.error(chalk.red.bold(`✗ Site not found: ${name}`));
+        console.log(chalk.yellow("Available sites:"));
+        listSites().forEach(site => {
+          console.log(`  - ${site.name}`);
+        });
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error(chalk.red.bold("✗ Error setting import site:"), error);
+      process.exit(1);
+    }
+  });
+
+// Create .env.json if it doesn't exist
+const envFilePath = path.join(__dirname, '.env.json');
+if (!fs.existsSync(envFilePath)) {
+  try {
+    const defaultEnv = {
+      lastExportSite: 'Default',
+      lastImportSite: 'Default'
+    };
+    fs.writeFileSync(envFilePath, JSON.stringify(defaultEnv, null, 2));
+    console.log(chalk.dim(`Created environment file at ${envFilePath}`));
+  } catch (error) {
+    console.warn(chalk.yellow(`Warning: Could not create environment file: ${error}`));
+  }
+}
 
 // Parse command line arguments
 program.parse();

@@ -2,7 +2,12 @@
  * Shared API utilities for WordPress scripts
  */
 import fetch from "node-fetch";
-import config from "../config";
+import config, {
+  getExportBaseUrl,
+  getImportBaseUrl,
+  getExportCredentials,
+  getImportCredentials
+} from "../config";
 
 /**
  * Fetch JSON data from a URL with authentication
@@ -10,17 +15,23 @@ import config from "../config";
  */
 export async function fetchJSON(url: string, options: any = {}): Promise<any> {
   // Determine which credentials to use based on the URL
-  const isImportUrl = url.includes(config.importBaseUrl);
-  const username = isImportUrl ? config.importUsername : config.exportUsername;
-  const password = isImportUrl ? config.importPassword : config.exportPassword;
-
+  const importBaseUrl = getImportBaseUrl();
+  const exportBaseUrl = getExportBaseUrl();
+  
+  const isImportUrl = url.includes(importBaseUrl);
+  
+  // Get the appropriate credentials
+  const credentials = isImportUrl 
+    ? getImportCredentials() 
+    : getExportCredentials();
+  
   const res = await fetch(url, {
     ...options,
     headers: {
       ...(options?.headers || {}),
       Authorization:
         "Basic " +
-        Buffer.from(`${username}:${password}`).toString("base64"),
+        Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64"),
       "Content-Type": "application/json",
     },
   });
