@@ -4,9 +4,9 @@ import fetch from "node-fetch";
 import FormData from "form-data";
 import readline from "readline";
 import chalk from "chalk";
-import config from "../shared/config";
-import { getFlagEmoji } from "../shared/utils/language";
-import { fetchJSON as apiFetchJSON, getSiteName as apiGetSiteName } from "../shared/utils/api";
+import config from "../config";
+import { getFlagEmoji } from "../utils/language";
+import { fetchJSON as apiFetchJSON, getSiteName as apiGetSiteName } from "../utils/api";
 
 // Type for the export data structure
 interface ExportData {

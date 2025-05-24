@@ -1,8 +1,8 @@
 import fs from "fs";
 import path from "path";
-import { fetchJSON, fetchAllPages, getSiteName } from "../shared/utils/api";
-import config from "../shared/config";
-import { getFlagEmoji } from "../shared/utils/language";
+import { fetchJSON, fetchAllPages, getSiteName } from "../utils/api";
+import config from "../config";
+import { getFlagEmoji } from "../utils/language";
 
 // Type for the export data structure
 interface ExportData {

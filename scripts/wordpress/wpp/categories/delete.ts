@@ -3,9 +3,9 @@ import path from "path";
 import fetch from "node-fetch";
 import readline from "readline";
 import chalk from "chalk";
-import config from "../shared/config";
-import { getFlagEmoji } from "../shared/utils/language";
-import { fetchJSON, getSiteName } from "../shared/utils/api";
+import config from "../config";
+import { getFlagEmoji } from "../utils/language";
+import { fetchJSON, getSiteName } from "../utils/api";
 
 // Check if --confirm flag is provided
 const shouldConfirm = !process.argv.includes("--confirm");

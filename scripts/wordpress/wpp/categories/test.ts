@@ -4,8 +4,8 @@ import path from "path";
 import readline from "readline";
 import { spawn } from "child_process";
 import chalk from "chalk";
-import config from "../shared/config";
-import { getFlagEmoji } from "../shared/utils/language";
+import config from "../config";
+import { getFlagEmoji } from "../utils/language";
 
 interface ExportData {
   meta: {

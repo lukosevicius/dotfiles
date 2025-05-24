@@ -1,13 +1,14 @@
 import fs from "fs";
 import path from "path";
 import chalk from "chalk";
-import { fetchJSON, fetchAllPages, getSiteName } from "../shared/utils/api";
+import { fetchJSON, fetchAllPages, getSiteName } from "../utils/api";
 import config, {
+  getExportBaseUrl,
+  getExportCredentials,
   getMainLanguage,
-  getOtherLanguages,
-  getExportBaseUrl
-} from "../shared/config";
-import { getFlagEmoji } from "../shared/utils/language";
+  getOtherLanguages
+} from "../config";
+import { getFlagEmoji } from "../utils/language";
 
 // Type for the export data structure
 interface ExportData {

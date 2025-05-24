@@ -2,9 +2,9 @@ import fs from "fs";
 import path from "path";
 import chalk from "chalk";
 import readline from "readline";
-import config from "../shared/config";
-import { fetchJSON, getSiteName } from "../shared/utils/api";
-import { getFlagEmoji } from "../shared/utils/language";
+import config from "../config";
+import { fetchJSON, getSiteName } from "../utils/api";
+import { getFlagEmoji } from "../utils/language";
 
 interface ExportData {
   meta: {

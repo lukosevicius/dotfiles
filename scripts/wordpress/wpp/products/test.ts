@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import readline from "readline";
 import { spawn } from "child_process";
-import config from "../shared/config";
+import config from "../config";
 import chalk from "chalk";
 
 interface ExportData {

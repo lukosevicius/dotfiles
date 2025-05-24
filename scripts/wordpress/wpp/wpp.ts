@@ -10,7 +10,7 @@ import path from "path";
 import { spawn } from "child_process";
 import readline from "readline";
 import fs from "fs";
-import { displayHeader as formatHeader } from "./shared/utils/formatting";
+import { displayHeader as formatHeader } from "./utils/formatting";
 import config, {
   getSiteByName,
   getSiteByIndex,
@@ -19,7 +19,7 @@ import config, {
   setExportSite,
   setImportSite,
   listSites
-} from "./shared/config";
+} from "./config";
 
 // Define script paths
 const categoryExportScript = path.join(__dirname, "categories/export.ts");
@@ -294,18 +294,34 @@ async function selectContentType(): Promise<void> {
     );
   });
   
+  // Add site management option
+  console.log("\n" + chalk.cyan("Other options:\n"));
+  console.log(
+    chalk.green(`${contentTypes.length + 1}. `) + 
+    chalk.bold("Manage sites") + 
+    chalk.dim(" - View and manage WordPress sites")
+  );
+  
   // Get user selection
   const rl = createPrompt();
   const answer = await new Promise<string>((resolve) => {
-    rl.question(chalk.cyan("\nEnter the number of the content type you want to manage: "), resolve);
+    rl.question(chalk.cyan("\nEnter your selection: "), resolve);
   });
   rl.close();
   
   const selectedIndex = parseInt(answer, 10) - 1;
   
+  // Check if the user selected the site management option
+  if (selectedIndex === contentTypes.length) {
+    // Run the sites command
+    await manageSites();
+    // After managing sites, show the content type selection again
+    return await selectContentType();
+  }
+  
   if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= contentTypes.length) {
     console.log(
-      chalk.red(`Invalid selection. Please enter a number between 1 and ${contentTypes.length}`)
+      chalk.red(`Invalid selection. Please enter a number between 1 and ${contentTypes.length + 1}`)
     );
     process.exit(1);
   }
@@ -329,12 +345,12 @@ async function showOperationsMenu(): Promise<void> {
   
   // Define available operations
   const operations = [
+    { id: "sites", name: "Manage sites", description: "View and manage WordPress sites" },
     { id: "export", name: `Export ${selectedContentType}`, description: `Export ${selectedContentType} from ${chalk.green(exportSite.name)}` },
     { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to ${chalk.blue(importSite.name)}` },
     { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from a WordPress site` },
     { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
     { id: "complete", name: "Complete workflow", description: "Run the complete export-test-import workflow" },
-    { id: "sites", name: "Manage sites", description: "View and manage WordPress sites" },
     { id: "select-type", name: "Change content type", description: "Select a different content type to manage" },
     { id: "exit", name: "Exit", description: "Exit the program" },
   ];

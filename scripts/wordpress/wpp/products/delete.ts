@@ -1,7 +1,7 @@
 import fetch from "node-fetch";
-import config from "../shared/config";
+import config from "../config";
 import chalk from "chalk";
-import { fetchJSON, getSiteName } from "../shared/utils/api";
+import { fetchJSON, getSiteName } from "../utils/api";
 import readline from "readline";
 
 // Check if --confirm flag is provided
