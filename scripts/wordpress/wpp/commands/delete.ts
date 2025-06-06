@@ -2,10 +2,10 @@ import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
 import chalk from "chalk";
-import config, { getImportBaseUrl, getImportCredentials, getMainLanguage, getOtherLanguages } from "./config";
-import { getFlagEmoji } from "./utils/language";
-import { getSiteName } from "./utils/api";
-import { deleteCategory, deleteAllCategories as deleteAllCategoriesImpl } from "./categories/delete";
+import config, { getImportBaseUrl, getImportCredentials, getMainLanguage, getOtherLanguages } from "../config";
+import { getFlagEmoji } from "../utils/language";
+import { getSiteName } from "../utils/api";
+import { deleteCategory, deleteAllCategories as deleteAllCategoriesImpl } from "../categories/delete";
 
 // Wrapper function that calls the implementation from categories/delete.ts
 async function deleteAllCategories(): Promise<void> {

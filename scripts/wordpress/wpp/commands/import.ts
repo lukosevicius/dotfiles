@@ -8,8 +8,9 @@ import config, {
   getImportBaseUrl,
   getImportCredentials,
   getExportCredentials
-} from "./config";
-import { getFlagEmoji } from "./utils/language";
+} from "../config";
+import { getFlagEmoji } from "../utils/language";
+import { limitImportData } from "../utils/limit-imports";
 
 // Type for the export data structure
 interface ExportData {

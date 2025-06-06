@@ -18,7 +18,11 @@ import config, {
   getImportSite,
   setExportSite,
   setImportSite,
-  listSites
+  listSites,
+  getMainLanguage,
+  getOtherLanguages,
+  getImportBaseUrl,
+  getExportBaseUrl
 } from "./config";
 
 // Define script paths
@@ -31,6 +35,12 @@ const productExportScript = path.join(__dirname, "products/export.ts");
 const productImportScript = path.join(__dirname, "products/import.ts");
 const productDeleteScript = path.join(__dirname, "products/delete.ts");
 const productTestScript = path.join(__dirname, "products/test.ts");
+
+// Command router scripts
+const exportScript = path.join(__dirname, "commands/export.ts");
+const importScript = path.join(__dirname, "commands/import.ts");
+const deleteScript = path.join(__dirname, "commands/delete.ts");
+const testScript = path.join(__dirname, "commands/test.ts");
 
 // Utility scripts
 const downloadImagesScript = path.join(__dirname, "utils/download-images.ts");
@@ -112,18 +122,25 @@ program
   .description("Export content from a WordPress site")
   .action(async () => {
     try {
-      const scriptPath = selectedContentType === "categories" ? categoryExportScript : productExportScript;
       const contentTypeName = selectedContentType === "categories" ? "Categories" : "Products";
       
-      // Check if script exists
-      if (!fs.existsSync(scriptPath)) {
-        console.error(chalk.red(`Export script for ${selectedContentType} not found at: ${scriptPath}`));
-        console.log(chalk.yellow(`Please implement the ${path.basename(scriptPath)} script first.`));
+      // Check if content-specific script exists
+      const contentScript = selectedContentType === "categories" ? categoryExportScript : productExportScript;
+      if (!fs.existsSync(contentScript)) {
+        console.error(chalk.red(`Export script for ${selectedContentType} not found at: ${contentScript}`));
+        console.log(chalk.yellow(`Please implement the ${path.basename(contentScript)} script first.`));
+        process.exit(1);
+      }
+      
+      // Check if command router script exists
+      if (!fs.existsSync(exportScript)) {
+        console.error(chalk.red(`Export command script not found at: ${exportScript}`));
+        console.log(chalk.yellow(`Please implement the ${path.basename(exportScript)} script first.`));
         process.exit(1);
       }
       
       displayHeader(`Exporting ${contentTypeName}`);
-      await runScript(scriptPath);
+      await runScript(exportScript);
       console.log(chalk.green.bold(`✓ ${contentTypeName} export completed successfully!`));
     } catch (error) {
       console.error(chalk.red.bold("✗ Export failed:"), error);
@@ -137,13 +154,20 @@ program
   .description("Import content to a WordPress site")
   .action(async () => {
     try {
-      const scriptPath = selectedContentType === "categories" ? categoryImportScript : productImportScript;
       const contentTypeName = selectedContentType === "categories" ? "Categories" : "Products";
       
-      // Check if script exists
-      if (!fs.existsSync(scriptPath)) {
-        console.error(chalk.red(`Import script for ${selectedContentType} not found at: ${scriptPath}`));
-        console.log(chalk.yellow(`Please implement the ${path.basename(scriptPath)} script first.`));
+      // Check if content-specific script exists
+      const contentScript = selectedContentType === "categories" ? categoryImportScript : productImportScript;
+      if (!fs.existsSync(contentScript)) {
+        console.error(chalk.red(`Import script for ${selectedContentType} not found at: ${contentScript}`));
+        console.log(chalk.yellow(`Please implement the ${path.basename(contentScript)} script first.`));
+        process.exit(1);
+      }
+      
+      // Check if command router script exists
+      if (!fs.existsSync(importScript)) {
+        console.error(chalk.red(`Import command script not found at: ${importScript}`));
+        console.log(chalk.yellow(`Please implement the ${path.basename(importScript)} script first.`));
         process.exit(1);
       }
       
@@ -170,7 +194,7 @@ program
         console.log(chalk.yellow(`Will import all ${selectedContentType}.`));
       }
       
-      await runScript(scriptPath, importArgs);
+      await runScript(importScript, importArgs);
       console.log(chalk.green.bold(`✓ ${contentTypeName} import completed successfully!`));
     } catch (error) {
       console.error(chalk.red.bold("✗ Import failed:"), error);
@@ -185,13 +209,20 @@ program
   .option("--confirm", "Skip confirmation prompt")
   .action(async (options) => {
     try {
-      const scriptPath = selectedContentType === "categories" ? categoryDeleteScript : productDeleteScript;
       const contentTypeName = selectedContentType === "categories" ? "Categories" : "Products";
       
-      // Check if script exists
-      if (!fs.existsSync(scriptPath)) {
-        console.error(chalk.red(`Delete script for ${selectedContentType} not found at: ${scriptPath}`));
-        console.log(chalk.yellow(`Please implement the ${path.basename(scriptPath)} script first.`));
+      // Check if content-specific script exists
+      const contentScript = selectedContentType === "categories" ? categoryDeleteScript : productDeleteScript;
+      if (!fs.existsSync(contentScript)) {
+        console.error(chalk.red(`Delete script for ${selectedContentType} not found at: ${contentScript}`));
+        console.log(chalk.yellow(`Please implement the ${path.basename(contentScript)} script first.`));
+        process.exit(1);
+      }
+      
+      // Check if command router script exists
+      if (!fs.existsSync(deleteScript)) {
+        console.error(chalk.red(`Delete command script not found at: ${deleteScript}`));
+        console.log(chalk.yellow(`Please implement the ${path.basename(deleteScript)} script first.`));
         process.exit(1);
       }
       
@@ -200,31 +231,32 @@ program
       
       // Check if confirmation is needed
       if (!options.confirm) {
-        console.log(
-          chalk.yellow.bold("⚠️  WARNING: ") + 
-          chalk.yellow(`This will delete ALL ${selectedContentType} from ${chalk.white.bgBlue(` ${importSite.name} (${importSite.baseUrl}) `)}`)
-        );
-        console.log(
-          chalk.yellow("This action cannot be undone. Make sure you have a backup if needed.")
-        );
+        console.log(chalk.yellow.bold(`\nWARNING: This will delete ALL ${selectedContentType} from ${importSite.name} (${importSite.baseUrl}).`));
+        console.log(chalk.yellow("This action cannot be undone. Make sure you have a backup if needed."));
         
         const rl = createPrompt();
         const answer = await new Promise<string>((resolve) => {
-          rl.question(chalk.yellow.bold("Are you sure you want to proceed? (yes/no): "), resolve);
+          rl.question(chalk.red.bold(`Are you sure you want to delete all ${selectedContentType}? (yes/no): `), resolve);
         });
         rl.close();
         
         if (answer.toLowerCase() !== "yes") {
-          console.log(chalk.blue("Operation cancelled."));
+          console.log(chalk.yellow("\nDeletion aborted."));
           return;
         }
+        
+        console.log(chalk.green("\nConfirmation received. Proceeding with deletion..."));
+      } else {
+        console.log(chalk.green("Skipping confirmation due to --confirm flag."));
       }
       
-      // Run the delete script with the confirm flag
-      await runScript(scriptPath, ["--confirm"]);
-      console.log(chalk.green.bold(`✓ ${contentTypeName} deletion from ${importSite.name} completed successfully!`));
+      // Add the --confirm flag to pass to the script
+      const deleteArgs = options.confirm ? ["--confirm"] : [];
+      
+      await runScript(deleteScript, deleteArgs);
+      console.log(chalk.green.bold(`\n✓ ${contentTypeName} deletion completed successfully!`));
     } catch (error) {
-      console.error(chalk.red.bold("✗ Deletion failed:"), error);
+      console.error(chalk.red.bold("\n✗ Deletion failed:"), error);
       process.exit(1);
     }
   });
@@ -833,51 +865,52 @@ program
     }
   });
 
-// Site management commands
+// Sites command - Display available sites
 program
   .command("sites")
-  .description("List all available sites")
-  .action(async () => {
-    try {
-      displayHeader("Available Sites");
-      const sites = listSites();
-      const exportSite = getExportSite();
-      const importSite = getImportSite();
-      
-      sites.forEach(site => {
-        const isExport = site.name === exportSite.name;
-        const isImport = site.name === importSite.name;
-        let marker = '  ';
-        
-        if (isExport && isImport) {
-          marker = chalk.magenta('⇄ ');
-        } else if (isExport) {
-          marker = chalk.green('↑ ');
-        } else if (isImport) {
-          marker = chalk.blue('↓ ');
-        }
-        
-        let name;
-        if (isExport && isImport) {
-          name = chalk.magenta.bold(site.name);
-        } else if (isExport) {
-          name = chalk.green.bold(site.name);
-        } else if (isImport) {
-          name = chalk.blue.bold(site.name);
-        } else {
-          name = site.name;
-        }
-        
-        console.log(`${marker}${site.index}: ${name} ${site.description ? `- ${site.description}` : ''}`);
-      });
-      
-      console.log(`\n${chalk.green('↑')} = Export site, ${chalk.blue('↓')} = Import site, ${chalk.magenta('⇄')} = Both`);
-      console.log(`Use ${chalk.cyan('wpp set-export-site <name>')} and ${chalk.cyan('wpp set-import-site <name>')} to change settings.`);
-    } catch (error) {
-      console.error(chalk.red.bold("✗ Error listing sites:"), error);
-      process.exit(1);
-    }
+  .description("Display available sites for import and export")
+  .action(() => {
+    displaySites();
   });
+
+/**
+ * Display available sites for import and export
+ */
+function displaySites(): void {
+  const sites = listSites();
+  const exportSite = getExportSite();
+  const importSite = getImportSite();
+  
+  console.log(chalk.bold("\nAvailable sites:"));
+  
+  sites.forEach(site => {
+    let marker = " ";
+    const isExport = exportSite && site.name === exportSite.name;
+    const isImport = importSite && site.name === importSite.name;
+    
+    if (isExport && isImport) {
+      marker = chalk.magenta("⇄ ");
+    } else if (isExport) {
+      marker = chalk.green("↑ ");
+    } else if (isImport) {
+      marker = chalk.blue("↓ ");
+    }
+    
+    let name = site.name;
+    if (isExport && isImport) {
+      name = chalk.magenta.bold(site.name);
+    } else if (isExport) {
+      name = chalk.green.bold(site.name);
+    } else if (isImport) {
+      name = chalk.blue.bold(site.name);
+    }
+    
+    console.log(`${marker}${site.index}: ${name} ${site.description ? `- ${site.description}` : ''}`);
+  });
+  
+  console.log(`\n${chalk.green("↑")} = Export site, ${chalk.blue("↓")} = Import site, ${chalk.magenta("⇄")} = Both`);
+  console.log(`Use --export-site=NAME to set export site, --import-site=NAME to set import site`);
+}
 
 program
   .command("set-export-site <name>")
@@ -923,13 +956,13 @@ program
     }
   });
 
-// Create .env.json if it doesn't exist
 const envFilePath = path.join(__dirname, '.env.json');
 if (!fs.existsSync(envFilePath)) {
   try {
     const defaultEnv = {
-      lastExportSite: 'Default',
-      lastImportSite: 'Default'
+      exportSite: config.sites[0].name,
+      importSite: config.sites[0].name,
+      contentType: "categories"
     };
     fs.writeFileSync(envFilePath, JSON.stringify(defaultEnv, null, 2));
     console.log(chalk.dim(`Created environment file at ${envFilePath}`));
@@ -938,5 +971,40 @@ if (!fs.existsSync(envFilePath)) {
   }
 }
 
-// Parse command line arguments
-program.parse();
+// Process site selection arguments before parsing other commands
+const exportSiteArg = process.argv.find(arg => arg.startsWith('--export-site='));
+if (exportSiteArg) {
+  const siteValue = exportSiteArg.split('=')[1];
+  const siteIndex = parseInt(siteValue);
+  
+  // If it's a number, use it as an index, otherwise as a name
+  const site = setExportSite(isNaN(siteIndex) ? siteValue : siteIndex);
+  
+  if (site) {
+    console.log(`${chalk.green("✓")} Set export site to: ${chalk.bold}${site.name}${chalk.reset}`);
+  } else {
+    console.log(`${chalk.red("✗")} Site not found: ${siteValue}${chalk.reset}`);
+    displaySites();
+    process.exit(1);
+  }
+}
+
+const importSiteArg = process.argv.find(arg => arg.startsWith('--import-site='));
+if (importSiteArg) {
+  const siteValue = importSiteArg.split('=')[1];
+  const siteIndex = parseInt(siteValue);
+  
+  // If it's a number, use it as an index, otherwise as a name
+  const site = setImportSite(isNaN(siteIndex) ? siteValue : siteIndex);
+  
+  if (site) {
+    console.log(`${chalk.green("✓")} Set import site to: ${chalk.bold}${site.name}${chalk.reset}`);
+  } else {
+    console.log(`${chalk.red("✗")} Site not found: ${siteValue}${chalk.reset}`);
+    displaySites();
+    process.exit(1);
+  }
+}
+
+// Main program execution
+program.parse(process.argv);

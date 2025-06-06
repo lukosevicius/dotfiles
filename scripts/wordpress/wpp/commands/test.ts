@@ -1,7 +1,9 @@
 // wpml-relationship-test.ts
 import fs from "fs";
 import path from "path";
-import config from "./config";
+import fetch from "node-fetch";
+import chalk from "chalk";
+import config, { getImportBaseUrl, getImportCredentials } from "../config";
 
 interface ExportData {
   meta: {
