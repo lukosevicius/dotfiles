@@ -3,7 +3,8 @@ import path from "path";
 import fetch from "node-fetch";
 import readline from "readline";
 import chalk from "chalk";
-import config, { getImportSite } from "../config";
+import config from "../config";
+import { getImportSite } from "../utils/config-utils";
 import { getFlagEmoji } from "../utils/language";
 import { fetchJSON, getSiteName } from "../utils/api";
 

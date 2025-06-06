@@ -1,11 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { fetchJSON, fetchAllPages, getSiteName } from "../utils/api";
-import config, {
+import config from "../config";
+import {
   getExportBaseUrl,
   getMainLanguage,
   getOtherLanguages
-} from "../config";
+} from "../utils/config-utils";
 import { getFlagEmoji } from "../utils/language";
 
 // Type for the export data structure

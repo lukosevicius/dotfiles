@@ -2,13 +2,14 @@ import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
 import FormData from "form-data";
-import config, {
+import config from "../config";
+import {
   getImportSite,
   getExportSite,
   getImportBaseUrl,
   getImportCredentials,
   getExportCredentials
-} from "../config";
+} from "../utils/config-utils";
 import { getFlagEmoji } from "../utils/language";
 import { limitImportData } from "../utils/limit-imports";
 

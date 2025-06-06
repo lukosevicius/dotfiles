@@ -1,5 +1,6 @@
 import fetch from "node-fetch";
-import config, { getImportBaseUrl, getImportCredentials } from "../config";
+import config from "../config";
+import { getImportBaseUrl, getImportCredentials } from "../utils/config-utils";
 import chalk from "chalk";
 import { fetchJSON, getSiteName } from "../utils/api";
 import readline from "readline";

@@ -2,12 +2,13 @@
  * Shared API utilities for WordPress scripts
  */
 import fetch from "node-fetch";
-import config, {
+import config from "../config";
+import {
   getExportBaseUrl,
   getImportBaseUrl,
   getExportCredentials,
   getImportCredentials
-} from "../config";
+} from "./config-utils";
 
 /**
  * Fetch JSON data from a URL with authentication

@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
-import config, { getExportBaseUrl, getExportCredentials, getMainLanguage, getOtherLanguages } from "../config";
+import config from "../config";
+import { getExportBaseUrl, getExportCredentials, getMainLanguage, getOtherLanguages } from "../utils/config-utils";
 import { getFlagEmoji } from "../utils/language";
 
 // Type for the export data structure

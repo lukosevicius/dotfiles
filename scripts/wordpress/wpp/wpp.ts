@@ -11,7 +11,8 @@ import { spawn } from "child_process";
 import readline from "readline";
 import fs from "fs";
 import { displayHeader as formatHeader } from "./utils/formatting";
-import config, {
+import config from "./config";
+import {
   getSiteByName,
   getSiteByIndex,
   getExportSite,
@@ -22,8 +23,8 @@ import config, {
   getMainLanguage,
   getOtherLanguages,
   getImportBaseUrl,
-  getExportBaseUrl
-} from "./config";
+  getExportBaseUrl,
+} from "./utils/config-utils";
 
 // Define script paths
 const categoryExportScript = path.join(__dirname, "categories/export.ts");

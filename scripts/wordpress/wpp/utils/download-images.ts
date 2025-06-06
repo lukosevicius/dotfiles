@@ -8,7 +8,8 @@ import path from "path";
 import chalk from "chalk";
 import readline from "readline";
 import fetch from "node-fetch";
-import config, { getExportSite } from "../config";
+import config from "../config";
+import { getExportSite } from "./config-utils";
 import { getFlagEmoji } from "./language";
 import { decodeSlug } from "./formatting";
 

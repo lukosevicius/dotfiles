@@ -3,7 +3,8 @@ import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
 import chalk from "chalk";
-import config, { getImportBaseUrl, getImportCredentials } from "../config";
+import config from "../config";
+import { getImportBaseUrl, getImportCredentials } from "../utils/config-utils";
 
 interface ExportData {
   meta: {
