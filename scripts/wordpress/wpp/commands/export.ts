@@ -1,205 +1,79 @@
 import fs from "fs";
 import path from "path";
-import fetch from "node-fetch";
-import config from "../config";
-import { getExportBaseUrl, getExportCredentials, getMainLanguage, getOtherLanguages } from "../utils/config-utils";
-import { getFlagEmoji } from "../utils/language";
+import { spawn } from "child_process";
 
-// Type for the export data structure
-interface ExportData {
-  meta: {
-    exported_at: string;
-    main_language: string;
-    other_languages: string[];
-  };
-  translations: {
-    wpml: Record<string, Record<string, number>>;
-  };
-  data: Record<string, any[]>;
-}
+// Determine which content type is selected based on environment variables or command line arguments
+const selectedContentType = process.env.CONTENT_TYPE || "categories";
 
-async function fetchJSON(url: string): Promise<any> {
-  const res = await fetch(url, {
-    headers: {
-      Authorization:
-        "Basic " +
-        Buffer.from(
-          `${getExportCredentials().username}:${getExportCredentials().password}`
-        ).toString("base64"),
-    },
-  });
+// Define script paths
+const categoryExportScript = path.join(__dirname, "../categories/export.ts");
+const productExportScript = path.join(__dirname, "../products/export.ts");
 
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-  }
+/**
+ * Run a script with ts-node
+ */
+async function runScript(scriptPath: string, args: string[] = []): Promise<void> {
+  return new Promise((resolve, reject) => {
+    console.log(`Running script: ${path.basename(scriptPath)}`);
+    const child = spawn("npx", ["ts-node", scriptPath, ...args], {
+      stdio: "inherit",
+    });
 
-  return await res.json();
-}
-
-async function getSiteName(baseUrl: string): Promise<string> {
-  try {
-    const response = await fetchJSON(`${baseUrl}/wp-json`);
-    return response.name || "Unknown Site";
-  } catch (error) {
-    console.error("Error fetching site information:", error);
-    return "Unknown Site";
-  }
-}
-
-async function fetchAllPages(baseUrl: string): Promise<any[]> {
-  let page = 1;
-  let allData: any[] = [];
-  let hasMorePages = true;
-
-  console.log(`Fetching data from ${baseUrl}`);
-
-  while (hasMorePages) {
-    const url = `${baseUrl}&page=${page}&per_page=${config.perPage}`;
-    console.log(`Fetching page ${page}...`);
-
-    const data = await fetchJSON(url);
-
-    if (data.length === 0) {
-      hasMorePages = false;
-    } else {
-      allData = [...allData, ...data];
-      page++;
-    }
-  }
-
-  return allData;
-}
-
-// getFlagEmoji function is now imported from ../utils/language
-
-async function exportCategories(): Promise<void> {
-  // Ensure output directory exists
-  if (!fs.existsSync(config.outputDir)) {
-    fs.mkdirSync(config.outputDir, { recursive: true });
-  }
-
-  // Get site name
-  const baseUrl = getExportBaseUrl();
-  const siteName = await getSiteName(baseUrl);
-
-  console.log(`🔄 Exporting from: ${baseUrl} (${siteName})`);
-  console.log("🔍 Fetching categories from WooCommerce API...");
-
-  // Step 1: Fetch all categories in all languages to get translation information
-  const allCategories = await fetchAllPages(
-    `${baseUrl}/wp-json/wc/v3/products/categories?lang=all`
-  );
-
-  console.log(`✅ Fetched ${allCategories.length} categories in total`);
-
-  // Debug: Check what languages are actually present in the response
-  const languagesInResponse = new Set<string>();
-  allCategories.forEach((cat) => {
-    if (cat.lang) {
-      languagesInResponse.add(cat.lang);
-    }
-
-    // Also check translations property
-    if (cat.translations) {
-      Object.keys(cat.translations).forEach((lang) => {
-        languagesInResponse.add(lang);
-      });
-    }
-  });
-
-  console.log(
-    "📊 Languages found in API response:",
-    Array.from(languagesInResponse).join(", ")
-  );
-
-  // Step 2: Organize categories by language
-  const categoriesByLang: Record<string, any[]> = {};
-  const translationMap: Record<string, Record<string, number>> = {};
-
-  // Initialize language buckets
-  const mainLanguage = getMainLanguage();
-  const otherLanguages = getOtherLanguages();
-  categoriesByLang[mainLanguage] = [];
-  for (const lang of otherLanguages) {
-    categoriesByLang[lang] = [];
-  }
-
-  // Process each category
-  for (const category of allCategories) {
-    const categoryLang = category.lang || mainLanguage;
-
-    // Filter out yoast_head and yoast_head_json fields
-    const filteredCategory = { ...category };
-    delete filteredCategory.yoast_head;
-    delete filteredCategory.yoast_head_json;
-
-    // Add to the appropriate language bucket
-    if (categoriesByLang[categoryLang]) {
-      categoriesByLang[categoryLang].push(filteredCategory);
-    }
-
-    // Process translation information if available
-    if (category.translations) {
-      // Use slug as the key for the translation group
-      const slug = category.slug;
-
-      if (!translationMap[slug]) {
-        translationMap[slug] = {};
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Script exited with code ${code}`));
       }
+    });
 
-      // Add this category to the translation map
-      translationMap[slug][categoryLang] = category.id;
-
-      // Add all translations to the map
-      for (const [lang, id] of Object.entries(category.translations)) {
-        if (!translationMap[slug]) {
-          translationMap[slug] = {};
-        }
-        translationMap[slug][lang] = id as number;
-      }
-    }
-  }
-
-  console.log("\n📊 Export Statistics:");
-  console.log(
-    `Total categories: ${Object.values(categoriesByLang).flat().length}`
-  );
-
-  console.log("\nBy language:");
-  for (const [lang, categories] of Object.entries(categoriesByLang)) {
-    const flag = getFlagEmoji(lang);
-    console.log(`- ${flag} ${lang}: ${categories.length}`);
-  }
-
-  console.log(
-    `\nTranslation relationships: ${Object.keys(translationMap).length}`
-  );
-
-  // Save to file with translation relationships
-  const exportData: ExportData = {
-    meta: {
-      exported_at: new Date().toISOString(),
-      main_language: mainLanguage,
-      other_languages: otherLanguages,
-    },
-    translations: {
-      wpml: translationMap,
-    },
-    data: categoriesByLang,
-  };
-
-  const outFile = path.join(config.outputDir, `exported-categories.json`);
-  fs.writeFileSync(outFile, JSON.stringify(exportData, null, 2));
-  console.log(
-    `✅ Exported categories to ${outFile} (Total: ${allCategories.length} items)`
-  );
+    child.on("error", (err) => {
+      reject(err);
+    });
+  });
 }
 
-async function main(): Promise<void> {
+async function main() {
   try {
-    await exportCategories();
+    // Check if content type is provided via command line
+    const typeIndex = process.argv.indexOf("--type");
+    let cmdContentType = "";
+    
+    // Get the content type but don't include it in the args we pass to the script
+    if (typeIndex !== -1 && process.argv[typeIndex + 1]) {
+      cmdContentType = process.argv[typeIndex + 1];
+    }
+    
+    // Command line argument takes precedence over environment variable
+    const contentType = cmdContentType || selectedContentType;
+    
+    // Determine which script to run based on content type
+    const scriptPath = contentType === "products" ? productExportScript : categoryExportScript;
+    
+    // Check if the script exists
+    if (!fs.existsSync(scriptPath)) {
+      console.error(`Export script for ${contentType} not found at: ${scriptPath}`);
+      process.exit(1);
+    }
+    
+    // Filter out the --type argument and its value from the args we pass to the script
+    const filteredArgs = [];
+    const args = process.argv.slice(2);
+    
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--type") {
+        // Skip this argument and the next one (the value)
+        i++;
+        continue;
+      }
+      filteredArgs.push(args[i]);
+    }
+    
+    // Run the appropriate export script
+    await runScript(scriptPath, filteredArgs);
   } catch (error) {
     console.error("❌ Export failed:", error);
+    process.exit(1);
   }
 }
 

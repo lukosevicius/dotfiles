@@ -1,50 +1,80 @@
+/**
+ * Delete command router script
+ * Routes to the appropriate delete script based on content type
+ */
 import fs from "fs";
 import path from "path";
-import fetch from "node-fetch";
-import chalk from "chalk";
-import config from "../config";
-import { getImportBaseUrl, getImportCredentials, getMainLanguage, getOtherLanguages } from "../utils/config-utils";
-import { getFlagEmoji } from "../utils/language";
-import { getSiteName } from "../utils/api";
-import { deleteCategory, deleteAllCategories as deleteAllCategoriesImpl } from "../categories/delete";
+import { spawn } from "child_process";
 
-// Wrapper function that calls the implementation from categories/delete.ts
-async function deleteAllCategories(): Promise<void> {
-  await deleteAllCategoriesImpl();
+// Define script paths
+const categoryDeleteScript = path.join(__dirname, "../categories/delete.ts");
+const productDeleteScript = path.join(__dirname, "../products/delete.ts");
+
+/**
+ * Run a script with ts-node
+ */
+async function runScript(scriptPath: string, args: string[] = []): Promise<void> {
+  return new Promise((resolve, reject) => {
+    console.log(`Running script: ${path.basename(scriptPath)}`);
+    const child = spawn("npx", ["ts-node", scriptPath, ...args], {
+      stdio: "inherit",
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Script exited with code ${code}`));
+      }
+    });
+
+    child.on("error", (err) => {
+      reject(err);
+    });
+  });
 }
 
-interface CategoryData {
-  id: number;
-  name: string;
-  slug: string;
-  lang?: string;
-}
-
-async function main(): Promise<void> {
+async function main() {
   try {
-    // Ask for confirmation before proceeding
-    console.log(
-      " WARNING: This will delete ALL product categories from the WordPress site."
-    );
-    const siteName = await getSiteName(getImportBaseUrl());
-    console.log(
-      "This action cannot be undone. Make sure you have a backup if needed."
-    );
-    console.log(
-      "To proceed, run with --confirm flag: yarn delete-wp --confirm"
-    );
-
-    // Check if --confirm flag is present
-    const hasConfirmFlag = process.argv.includes("--confirm");
-
-    if (hasConfirmFlag) {
-      console.log("\nConfirmation received. Proceeding with deletion...");
-      await deleteAllCategories();
-    } else {
-      console.log("\n❌ Deletion aborted. Run with --confirm flag to proceed.");
+    // Check if content type is provided via command line
+    const typeIndex = process.argv.indexOf("--type");
+    let cmdContentType = "";
+    
+    // Get the content type but don't include it in the args we pass to the script
+    if (typeIndex !== -1 && process.argv[typeIndex + 1]) {
+      cmdContentType = process.argv[typeIndex + 1];
     }
+    
+    // Command line argument takes precedence over environment variable
+    const contentType = cmdContentType || process.env.CONTENT_TYPE || "categories";
+    
+    // Determine which script to run based on content type
+    const scriptPath = contentType === "products" ? productDeleteScript : categoryDeleteScript;
+    
+    // Check if the script exists
+    if (!fs.existsSync(scriptPath)) {
+      console.error(`Delete script for ${contentType} not found at: ${scriptPath}`);
+      process.exit(1);
+    }
+    
+    // Filter out the --type argument and its value from the args we pass to the script
+    const filteredArgs = [];
+    const args = process.argv.slice(2);
+    
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--type") {
+        // Skip this argument and the next one (the value)
+        i++;
+        continue;
+      }
+      filteredArgs.push(args[i]);
+    }
+    
+    // Run the appropriate delete script
+    await runScript(scriptPath, filteredArgs);
   } catch (error) {
-    console.error("❌ Deletion process failed:", error);
+    console.error("❌ Delete operation failed:", error);
+    process.exit(1);
   }
 }
 

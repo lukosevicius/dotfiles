@@ -81,9 +81,25 @@ const runScript = (scriptPath: string, args: string[] = []): Promise<void> => {
     
     console.log(chalk.dim(`Running script: ${path.basename(scriptPath)}`));
     
-    const childProcess = spawn("yarn", ["ts-node", scriptPath, ...args], {
+    // Add the content type to the environment variables
+    const env = { 
+      ...process.env, 
+      CONTENT_TYPE: selectedContentType,
+    };
+    
+    // Add --type argument to explicitly pass the content type, but only for command scripts
+    // This ensures the content type is passed to our router scripts but not to the underlying implementation scripts
+    const scriptArgs = [...args];
+    const isCommandScript = scriptPath.includes("/commands/");
+    
+    if (isCommandScript && !args.includes("--type")) {
+      scriptArgs.push("--type", selectedContentType);
+    }
+    
+    const childProcess = spawn("yarn", ["ts-node", scriptPath, ...scriptArgs], {
       stdio: "inherit",
-      cwd: process.cwd()
+      cwd: process.cwd(),
+      env
     });
     
     childProcess.on("close", (code) => {
