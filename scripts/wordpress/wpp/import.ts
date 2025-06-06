@@ -3,8 +3,9 @@ import path from "path";
 import fetch from "node-fetch";
 import FormData from "form-data";
 import config, {
+  getImportSite,
+  getExportSite,
   getImportBaseUrl,
-  getExportBaseUrl,
   getImportCredentials,
   getExportCredentials
 } from "./config";
@@ -57,7 +58,7 @@ const tempImageDir = path.join(config.outputDir, "temp_images");
 async function fetchJSON(url: string, options: any = {}): Promise<any> {
   // Determine which credentials to use based on the URL
   const importBaseUrl = getImportBaseUrl();
-  const exportBaseUrl = getExportBaseUrl();
+  const exportBaseUrl = getExportSite().baseUrl;
   const importCreds = getImportCredentials();
   const exportCreds = getExportCredentials();
   
@@ -334,9 +335,8 @@ async function categoryExists(
   lang: string
 ): Promise<number | null> {
   try {
-    const response = await fetchJSON(
-      `${getImportBaseUrl()}/wp-json/wc/v3/products/categories?slug=${slug}&lang=${lang}`
-    );
+    const url = `${getImportBaseUrl()}/wp-json/wc/v3/products/categories?slug=${slug}&lang=${lang}`;
+    const response = await fetchJSON(url);
 
     if (response && response.length > 0) {
       return response[0].id;
@@ -362,7 +362,7 @@ async function getSiteName(baseUrl: string): Promise<string> {
   }
 }
 
-// getFlagEmoji function is now imported from ../utils/language
+// ... (rest of the code remains the same)
 
 async function importCategories(): Promise<void> {
   // Initialize statistics
@@ -436,7 +436,7 @@ async function importCategories(): Promise<void> {
 
       // Create category
       const response = await fetchJSON(
-        `${config.importBaseUrl}/wp-json/wc/v3/products/categories?lang=${mainLanguage}`,
+        `${getImportBaseUrl()}/wp-json/wc/v3/products/categories?lang=${mainLanguage}`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -517,7 +517,7 @@ async function importCategories(): Promise<void> {
         // If no translation relationship found, create as standalone
         if (!mainCategoryId) {
           const response = await fetchJSON(
-            `${config.importBaseUrl}/wp-json/wc/v3/products/categories?lang=${lang}`,
+            `${getImportBaseUrl()}/wp-json/wc/v3/products/categories?lang=${lang}`,
             {
               method: "POST",
               body: JSON.stringify({
@@ -548,7 +548,7 @@ async function importCategories(): Promise<void> {
           }
 
           const response = await fetchJSON(
-            `${config.importBaseUrl}/wp-json/wc/v3/products/categories?lang=${lang}`,
+            `${getImportBaseUrl()}/wp-json/wc/v3/products/categories?lang=${lang}`,
             {
               method: "POST",
               body: JSON.stringify({
@@ -593,7 +593,7 @@ async function importCategories(): Promise<void> {
       if (newId && newParentId) {
         try {
           await fetchJSON(
-            `${config.importBaseUrl}/wp-json/wc/v3/products/categories/${newId}?lang=${mainLanguage}`,
+            `${getImportBaseUrl()}/wp-json/wc/v3/products/categories/${newId}?lang=${mainLanguage}`,
             {
               method: "PUT",
               body: JSON.stringify({
@@ -629,7 +629,7 @@ async function importCategories(): Promise<void> {
         if (newId && newParentId) {
           try {
             await fetchJSON(
-              `${config.importBaseUrl}/wp-json/wc/v3/products/categories/${newId}?lang=${lang}`,
+              `${getImportBaseUrl()}/wp-json/wc/v3/products/categories/${newId}?lang=${lang}`,
               {
                 method: "PUT",
                 body: JSON.stringify({

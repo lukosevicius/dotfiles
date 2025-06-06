@@ -8,6 +8,7 @@ import config, { getImportSite, getExportSite } from "../config";
 import { fetchJSON, getSiteName } from "../utils/api";
 import { getFlagEmoji } from "../utils/language";
 import { decodeSlug } from "../utils/formatting";
+import { limitImportData } from "../utils/limit-imports";
 
 // Create temp directories for images if they don't exist
 const tempDir = path.join(__dirname, "../temp");
@@ -28,6 +29,16 @@ const imageMapping: Record<number, number> = {};
 const forceImport = process.argv.includes("--force-import");
 const downloadImages = process.argv.includes("--download-images");
 const skipImageDownload = process.argv.includes("--skip-image-download");
+
+// Import limit option
+let importLimit: number | null = null;
+const limitIndex = process.argv.indexOf("--limit");
+if (limitIndex !== -1 && limitIndex < process.argv.length - 1) {
+  const limitValue = parseInt(process.argv[limitIndex + 1]);
+  if (!isNaN(limitValue) && limitValue > 0) {
+    importLimit = limitValue;
+  }
+}
 
 interface ExportData {
   meta: {
@@ -95,6 +106,12 @@ async function importProducts(): Promise<void> {
   
   console.log(chalk.cyan(`📊 Found ${Object.values(data).flat().length} products in ${Object.keys(data).length} languages`));
   
+  // Apply import limit if specified
+  let filteredData = data;
+  if (importLimit && importLimit > 0) {
+    filteredData = limitImportData(data, translations, meta.main_language, meta.other_languages, importLimit);
+  }
+  
   // Show clear import information and ask for confirmation
   console.log(chalk.yellow.bold(`\n⚠️ IMPORT CONFIRMATION`));
   console.log(chalk.yellow(`You are about to import products:`));
@@ -132,8 +149,10 @@ async function importProducts(): Promise<void> {
   
   console.log(chalk.cyan(`🔄 Importing to: ${importSite.baseUrl} (${targetSiteName})`));
   
-  // Initialize stats for each language
-  const allLanguages = [meta.main_language, ...meta.other_languages];
+  // Get all languages
+  const allLanguages = Object.keys(exportData.data);
+
+  // Initialize stats for all languages
   for (const lang of allLanguages) {
     importStats.byLanguage[lang] = { total: 0, created: 0, skipped: 0, failed: 0 };
   }
@@ -143,16 +162,16 @@ async function importProducts(): Promise<void> {
   
   // Import main language first
   const mainLang = meta.main_language;
-  if (data[mainLang] && data[mainLang].length > 0) {
-    console.log(chalk.cyan(`\n🌎 Importing ${data[mainLang].length} products in main language: ${mainLang} ${getFlagEmoji(mainLang)}`));
-    await importProductsForLanguage(data[mainLang], mainLang, exportData);
+  if (filteredData[mainLang] && filteredData[mainLang].length > 0) {
+    console.log(chalk.cyan(`\n🌎 Importing ${filteredData[mainLang].length} products in main language: ${mainLang} ${getFlagEmoji(mainLang)}`));
+    await importProductsForLanguage(filteredData[mainLang], mainLang, exportData);
   }
   
   // Then import other languages
   for (const lang of meta.other_languages) {
-    if (data[lang] && data[lang].length > 0) {
-      console.log(chalk.cyan(`\n🌎 Importing ${data[lang].length} products in language: ${lang} ${getFlagEmoji(lang)}`));
-      await importProductsForLanguage(data[lang], lang, exportData);
+    if (filteredData[lang] && filteredData[lang].length > 0) {
+      console.log(chalk.cyan(`\n🌎 Importing ${filteredData[lang].length} products in language: ${lang} ${getFlagEmoji(lang)}`));
+      await importProductsForLanguage(filteredData[lang], lang, exportData);
     }
   }
   
@@ -167,7 +186,7 @@ async function importProducts(): Promise<void> {
   let translationsSucceeded = 0;
   let translationsFailed = 0;
   
-  for (const [slug, langMap] of Object.entries(translations.wpml)) {
+  for (const [slug, langMap] of Object.entries(translations.wpml) as [string, Record<string, number>][]) {
     try {
       // Check if we have mapped IDs for at least two languages in this group
       const mappedLangs = Object.keys(langMap).filter(lang => 
@@ -183,11 +202,15 @@ async function importProducts(): Promise<void> {
       const translationData: Record<string, number> = {};
       
       for (const lang of mappedLangs) {
-        const originalId = langMap[lang];
-        const newId = idMap[lang][originalId];
-        
-        if (newId) {
-          translationData[lang] = newId;
+        if (typeof lang === 'string' && langMap[lang] !== undefined) {
+          const originalId = langMap[lang];
+          if (idMap[lang] && idMap[lang][originalId] !== undefined) {
+            const newId = idMap[lang][originalId];
+            
+            if (newId) {
+              translationData[lang] = newId;
+            }
+          }
         }
       }
       
@@ -238,9 +261,16 @@ async function importProducts(): Promise<void> {
 }
 
 async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData): Promise<void> {
+  // Apply import limit if specified
+  const productsToImport = importLimit ? products.slice(0, importLimit) : products;
+  
+  if (importLimit) {
+    console.log(chalk.yellow(`Limiting import to ${importLimit} products (out of ${products.length} total)`));
+  }
+  
   let count = 0;
   
-  for (const product of products) {
+  for (const product of productsToImport) {
     try {
       count++;
       importStats.total++;
@@ -627,18 +657,6 @@ async function processImage(image: any, productSlug?: string): Promise<number | 
       console.log("  No image source provided");
       return null;
     }
-    
-    // If --skip-image-download is set and no image exists locally, skip processing
-    if (skipImageDownload && !downloadImages) {
-      const imageName = productSlug ? `${productSlug}${path.extname(path.basename(image.src))}` : path.basename(image.src);
-      const tempImagesPath = path.join(tempImagesDir, imageName);
-      
-      if (!fs.existsSync(tempImagesPath)) {
-        console.log(`  Skipping image processing (--skip-image-download): ${imageName}`);
-        importStats.images.skipped++;
-        return null;
-      }
-    }
 
     // Check if we already processed this image ID
     if (image.id && imageMapping[image.id]) {
@@ -652,30 +670,66 @@ async function processImage(image: any, productSlug?: string): Promise<number | 
     // Use product slug as the filename if provided, otherwise extract from URL
     let imageName = path.basename(image.src);
     const fileExtension = path.extname(imageName).toLowerCase();
+    const nameWithoutExt = productSlug || path.basename(imageName, fileExtension);
     
-    if (productSlug) {
-      // Use the product slug as the filename
-      const decodedSlug = decodeSlug(productSlug);
-      imageName = `${productSlug}${fileExtension}`;
-      console.log(`Downloading image: ${imageName} (renamed from original for product: ${decodedSlug})`);
-    } else {
-      console.log(`Downloading image: ${imageName}`);
+    // Check for WebP version first
+    const webpImagesDir = path.join(config.outputDir, "webp_images");
+    const webpImagePath = path.join(webpImagesDir, `${nameWithoutExt}.webp`);
+    
+    // Check for regular version
+    const regularImageName = productSlug ? `${productSlug}${fileExtension}` : imageName;
+    const regularImagePath = path.join(tempImagesDir, regularImageName);
+    
+    let imageToUpload: string | null = null;
+    let finalImageName = "";
+    
+    // First priority: Use WebP if available
+    if (fs.existsSync(webpImagePath)) {
+      console.log(`  Using WebP image: ${nameWithoutExt}.webp`);
+      imageToUpload = webpImagePath;
+      finalImageName = `${nameWithoutExt}.webp`;
     }
-
-    // Download the image
-    const filePath = await downloadImage(image.src, imageName);
-    importStats.images.downloaded++;
+    // Second priority: Use regular image if available
+    else if (fs.existsSync(regularImagePath)) {
+      console.log(`  Using existing image: ${regularImageName}`);
+      imageToUpload = regularImagePath;
+      finalImageName = regularImageName;
+    }
+    // Third priority: Download if allowed
+    else if (!skipImageDownload) {
+      if (productSlug) {
+        const decodedSlug = decodeSlug(productSlug);
+        console.log(`  Downloading image for product: ${decodedSlug}`);
+      } else {
+        console.log(`  Downloading image: ${imageName}`);
+      }
+      
+      // Download the image
+      imageToUpload = await downloadImage(image.src, regularImageName);
+      finalImageName = regularImageName;
+      importStats.images.downloaded++;
+    }
+    // Skip if no image available and downloads not allowed
+    else {
+      console.log(`  Skipping image processing (--skip-image-download): ${regularImageName}`);
+      importStats.images.skipped++;
+      return null;
+    }
 
     // Upload the image
-    const newImageId = await uploadImage(filePath, imageName);
-    importStats.images.uploaded++;
+    if (imageToUpload) {
+      const newImageId = await uploadImage(imageToUpload, finalImageName);
+      importStats.images.uploaded++;
 
-    // Store the mapping
-    if (image.id) {
-      imageMapping[image.id] = newImageId;
+      // Store the mapping
+      if (image.id) {
+        imageMapping[image.id] = newImageId;
+      }
+
+      return newImageId;
     }
-
-    return newImageId;
+    
+    return null;
   } catch (error) {
     console.error("Error processing image:", error);
     importStats.images.failed++;

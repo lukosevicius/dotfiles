@@ -7,6 +7,7 @@ import chalk from "chalk";
 import config, { getImportSite, getExportSite } from "../config";
 import { getFlagEmoji } from "../utils/language";
 import { fetchJSON as apiFetchJSON, getSiteName as apiGetSiteName } from "../utils/api";
+import { limitImportData } from "../utils/limit-imports";
 
 // Type for the export data structure
 interface ExportData {
@@ -91,6 +92,16 @@ const imageMapping: Record<number, number> = {};
 const forceImport = process.argv.includes("--force-import");
 const downloadImages = process.argv.includes("--download-images");
 const skipImageDownload = process.argv.includes("--skip-image-download");
+
+// Import limit option
+let importLimit: number | null = null;
+const limitIndex = process.argv.indexOf("--limit");
+if (limitIndex !== -1 && limitIndex < process.argv.length - 1) {
+  const limitValue = parseInt(process.argv[limitIndex + 1]);
+  if (!isNaN(limitValue) && limitValue > 0) {
+    importLimit = limitValue;
+  }
+}
 
 // Temporary directories for downloaded images
 const tempImageDir = path.join(config.outputDir, "temp");
@@ -369,17 +380,6 @@ async function processImage(
   stats: ImportStats,
   categorySlug?: string
 ): Promise<number | null> {
-  // If --skip-image-download is set and no image exists locally, skip processing
-  if (skipImageDownload && !downloadImages) {
-    const imageName = categorySlug ? `${categorySlug}${path.extname(path.basename(image.src))}` : path.basename(image.src);
-    const tempImagesPath = path.join(tempImagesDir, imageName);
-    
-    if (!fs.existsSync(tempImagesPath)) {
-      console.log(`  Skipping image processing (--skip-image-download): ${imageName}`);
-      stats.images.skipped++;
-      return null;
-    }
-  }
   try {
     if (!image || !image.src) {
       console.log("  No image source provided");
@@ -398,30 +398,66 @@ async function processImage(
     // Use category slug as the filename if provided, otherwise extract from URL
     let imageName = path.basename(image.src);
     const fileExtension = path.extname(imageName).toLowerCase();
+    const nameWithoutExt = categorySlug || path.basename(imageName, fileExtension);
     
-    if (categorySlug) {
-      // Use the category slug as the filename
-      const decodedSlug = decodeSlug(categorySlug);
-      imageName = `${categorySlug}${fileExtension}`;
-      console.log(`Downloading image: ${imageName} (renamed from original for category: ${decodedSlug})`);
-    } else {
-      console.log(`Downloading image: ${imageName}`);
+    // Check for WebP version first
+    const webpImagesDir = path.join(config.outputDir, "webp_images");
+    const webpImagePath = path.join(webpImagesDir, `${nameWithoutExt}.webp`);
+    
+    // Check for regular version
+    const regularImageName = categorySlug ? `${categorySlug}${fileExtension}` : imageName;
+    const regularImagePath = path.join(tempImagesDir, regularImageName);
+    
+    let imageToUpload: string | null = null;
+    let finalImageName = "";
+    
+    // First priority: Use WebP if available
+    if (fs.existsSync(webpImagePath)) {
+      console.log(`  Using WebP image: ${nameWithoutExt}.webp`);
+      imageToUpload = webpImagePath;
+      finalImageName = `${nameWithoutExt}.webp`;
     }
-
-    // Download the image
-    const filePath = await downloadImage(image.src, imageName);
-    stats.images.downloaded++;
+    // Second priority: Use regular image if available
+    else if (fs.existsSync(regularImagePath)) {
+      console.log(`  Using existing image: ${regularImageName}`);
+      imageToUpload = regularImagePath;
+      finalImageName = regularImageName;
+    }
+    // Third priority: Download if allowed
+    else if (!skipImageDownload) {
+      if (categorySlug) {
+        const decodedSlug = decodeSlug(categorySlug);
+        console.log(`  Downloading image for category: ${decodedSlug}`);
+      } else {
+        console.log(`  Downloading image: ${imageName}`);
+      }
+      
+      // Download the image
+      imageToUpload = await downloadImage(image.src, regularImageName);
+      finalImageName = regularImageName;
+      stats.images.downloaded++;
+    }
+    // Skip if no image available and downloads not allowed
+    else {
+      console.log(`  Skipping image processing (--skip-image-download): ${regularImageName}`);
+      stats.images.skipped++;
+      return null;
+    }
 
     // Upload the image
-    const newImageId = await uploadImage(filePath, imageName);
-    stats.images.uploaded++;
+    if (imageToUpload) {
+      const newImageId = await uploadImage(imageToUpload, finalImageName);
+      stats.images.uploaded++;
 
-    // Store the mapping
-    if (image.id) {
-      imageMapping[image.id] = newImageId;
+      // Store the mapping
+      if (image.id) {
+        imageMapping[image.id] = newImageId;
+      }
+
+      return newImageId;
     }
-
-    return newImageId;
+    
+    return null;
   } catch (error) {
     console.error("Error processing image:", error);
     stats.images.failed++;
@@ -503,7 +539,14 @@ async function importCategoriesForLanguage(
     };
   }
 
-  for (const category of categories) {
+  // Apply import limit if specified
+  const categoriesToImport = importLimit ? categories.slice(0, importLimit) : categories;
+  
+  if (importLimit) {
+    console.log(chalk.yellow(`Limiting import to ${importLimit} categories (out of ${categories.length} total)`));
+  }
+  
+  for (const category of categoriesToImport) {
     console.log(`Processing "${category.name}" (${category.slug})...`);
 
     // Check if category already exists
@@ -566,66 +609,25 @@ async function importCategoriesForLanguage(
 
 async function importCategories(): Promise<void> {
   try {
-    console.log(`📂 Loading category data from: ${config.inputFile}`);
-
-    // Check if the export file exists
-    if (!fs.existsSync(config.inputFile)) {
-      throw new Error(`Export file not found: ${config.inputFile}`);
-    }
-
     // Load the export data
-    const exportData: ExportData = JSON.parse(
-      fs.readFileSync(config.inputFile, "utf8")
-    );
-
-    // Extract data from the export
+    if (!fs.existsSync(config.inputFile)) {
+      console.error(chalk.red(`Error: Category export file not found at ${config.inputFile}`));
+      console.log(chalk.yellow("Please run the category export first."));
+      process.exit(1);
+    }
+    
+    console.log(chalk.cyan(`📂 Loading category data from: ${config.inputFile}`));
+    
+    const exportData: ExportData = JSON.parse(fs.readFileSync(config.inputFile, "utf-8"));
     const { meta, translations, data } = exportData;
-    const mainLanguage = meta.main_language;
-    const otherLanguages = meta.other_languages;
-    const sourceSiteName = meta.source_site || "Unknown source site";
-    const targetSiteName = await getSiteName(getImportSite().baseUrl);
-
-    console.log(chalk.cyan(`📊 Found ${Object.values(data).flat().length} categories in ${Object.keys(data).length} languages`));
-
-    // Show clear import information and ask for confirmation
-    console.log(chalk.yellow.bold(`\n⚠️ IMPORT CONFIRMATION`));
-    console.log(chalk.yellow(`You are about to import categories:`));
-    console.log(chalk.yellow(`- FROM: ${chalk.white(sourceSiteName)} (export file)`));
-    console.log(chalk.yellow(`- TO:   ${chalk.white.bgBlue(` ${targetSiteName} (${getImportSite().baseUrl}) `)}`));
-
-    // Show image download settings
-    if (skipImageDownload) {
-      console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will NOT download images')} (using --skip-image-download)`));
-    } else if (downloadImages) {
-      console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download ALL images')} (using --download-images)`));
-    } else {
-      console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download only if not found locally')}`));
-    }
-
-    // Skip confirmation if force-import flag is set
-    if (!process.argv.includes("--force-import")) {
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-
-      const answer = await new Promise<string>((resolve) => {
-        rl.question(chalk.yellow("Proceed with import? (y/n): "), resolve);
-      });
-
-      rl.close();
-
-      if (answer.toLowerCase() !== "y") {
-        console.log(chalk.blue("Import cancelled."));
-        return;
-      }
-    } else {
-      console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
-    }
-
-    console.log(chalk.cyan(`🔄 Importing to: ${getImportSite().baseUrl} (${targetSiteName})`));
-
-    // Initialize statistics
+    const { main_language: mainLanguage, other_languages: otherLanguages } = meta;
+    
+    // Get source and target site names
+    const sourceSiteName = exportData.meta.source_site || "Unknown source site";
+    const importSite = getImportSite();
+    const targetSiteName = await apiGetSiteName(importSite.baseUrl);
+    
+    // Initialize stats
     const stats: ImportStats = {
       categories: {
         total: Object.values(data).flat().length,
@@ -647,22 +649,98 @@ async function importCategories(): Promise<void> {
         failed: 0,
       },
     };
+    
+    // Initialize language stats
+    for (const lang of [mainLanguage, ...otherLanguages]) {
+      stats.byLanguage[lang] = { total: 0, created: 0, skipped: 0, failed: 0 };
+    }
 
-    // First pass: Create all categories
+    console.log(chalk.cyan(`📊 Found ${Object.values(data).flat().length} categories in ${Object.keys(data).length} languages`));
+    
+    // Apply import limit if specified
+    let filteredData = data;
+    if (importLimit && importLimit > 0) {
+      filteredData = limitImportData(data, translations, mainLanguage, otherLanguages, importLimit);
+    }
+
+    console.log(
+      chalk.cyan(`📊 Found ${Object.values(filteredData).flat().length} categories in ${Object.keys(filteredData).length} languages`)
+    );
+    
+    // If import limit is set, prepare the list of slugs to import
+    let slugsToImport: Set<string> | null = null;
+    if (importLimit && importLimit > 0 && filteredData[mainLanguage]) {
+      slugsToImport = new Set<string>();
+      for (const item of filteredData[mainLanguage]) {
+        if (item && item.slug) {
+          slugsToImport.add(item.slug);
+        }
+      }
+      
+      console.log(chalk.yellow(`Limiting import to ${filteredData[mainLanguage].length} items from main language and their translations`));
+    }
+
+    // Show clear import information and ask for confirmation
+    console.log(chalk.yellow.bold(`\n⚠️ IMPORT CONFIRMATION`));
+    console.log(chalk.yellow(`You are about to import categories:`));
+    console.log(chalk.yellow(`- FROM: ${chalk.white(sourceSiteName)} (export file)`));
+    console.log(chalk.yellow(`- TO:   ${chalk.white.bgBlue(` ${targetSiteName} (${importSite.baseUrl}) `)}`));
+    
+    // Show image download settings
+    if (skipImageDownload) {
+      console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will NOT download images')} (using --skip-image-download)`));
+    } else if (downloadImages) {
+      console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download ALL images')} (using --download-images)`));
+    } else {
+      console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download only if not found locally')}`));
+    }
+
+    // Skip confirmation if force-import flag is set
+    if (!forceImport) {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(chalk.yellow.bold('\nProceed with import? (y/n): '), resolve);
+      });
+      rl.close();
+
+      if (answer.toLowerCase() !== "y") {
+        console.log(chalk.blue("Import cancelled."));
+        return;
+      }
+    } else {
+      console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
+    }
+
+    console.log(chalk.cyan(`🔄 Importing to: ${importSite.baseUrl} (${targetSiteName})`));
+
+    // Initialize stats for each language
+    const allLanguages = [meta.main_language, ...meta.other_languages];
+    for (const lang of allLanguages) {
+      stats.byLanguage[lang] = { total: 0, created: 0, skipped: 0, failed: 0 };
+    }
+
+    // First pass: Import categories for each language
     console.log(chalk.cyan("\n🔄 First pass: Importing categories..."));
 
-    // Start with main language
-    await importCategoriesForLanguage(
-      data[mainLanguage] || [],
-      mainLanguage,
-      idMap,
-      stats
-    );
+    // Import main language first
+    if (filteredData[mainLanguage] && filteredData[mainLanguage].length > 0) {
+      console.log(
+        chalk.cyan(`\n🌎 Importing ${filteredData[mainLanguage].length} categories in main language: ${mainLanguage} ${getFlagEmoji(mainLanguage)}`)
+      );
+      await importCategoriesForLanguage(filteredData[mainLanguage], mainLanguage, idMap, stats);
+    }
 
     // Then import other languages
     for (const lang of otherLanguages) {
-      if (data[lang] && data[lang].length > 0) {
-        await importCategoriesForLanguage(data[lang], lang, idMap, stats);
+      if (filteredData[lang] && filteredData[lang].length > 0) {
+        console.log(
+          chalk.cyan(`\n🌎 Importing ${filteredData[lang].length} categories in language: ${lang} ${getFlagEmoji(lang)}`)
+        );
+        await importCategoriesForLanguage(filteredData[lang], lang, idMap, stats);
       }
     }
 
@@ -677,7 +755,7 @@ async function importCategories(): Promise<void> {
     let translationsSucceeded = 0;
     let translationsFailed = 0;
 
-    for (const [slug, langMap] of Object.entries(translations.wpml)) {
+    for (const [slug, langMap] of Object.entries(translations.wpml) as [string, Record<string, number>][]) {
       try {
         // Check if we have mapped IDs for at least two languages in this group
         const mappedLangs = Object.entries(langMap).filter(([lang, id]) => {
@@ -694,7 +772,9 @@ async function importCategories(): Promise<void> {
 
         // Start with the main language category as the "original"
         let originalId: number | undefined = undefined;
-        if (langMap[mainLanguage] && idMap[mainLanguage][langMap[mainLanguage]]) {
+        const mainLanguage = meta.main_language;
+        
+        if (langMap[mainLanguage] && idMap[mainLanguage] && idMap[mainLanguage][langMap[mainLanguage]]) {
           originalId = idMap[mainLanguage][langMap[mainLanguage]];
           translationData[mainLanguage] = originalId;
         }
@@ -703,8 +783,10 @@ async function importCategories(): Promise<void> {
         if (originalId === undefined) {
           const firstLang = mappedLangs[0][0];
           const firstId = mappedLangs[0][1] as number;
-          originalId = idMap[firstLang][firstId];
-          translationData[firstLang] = originalId;
+          if (idMap[firstLang]) {
+            originalId = idMap[firstLang][firstId];
+            translationData[firstLang] = originalId;
+          }
         }
 
         // Add translations for other languages

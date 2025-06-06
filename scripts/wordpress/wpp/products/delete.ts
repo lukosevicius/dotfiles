@@ -1,5 +1,5 @@
 import fetch from "node-fetch";
-import config from "../config";
+import config, { getImportBaseUrl, getImportCredentials } from "../config";
 import chalk from "chalk";
 import { fetchJSON, getSiteName } from "../utils/api";
 import readline from "readline";
@@ -9,13 +9,13 @@ const shouldConfirm = !process.argv.includes("--confirm");
 
 async function deleteAllProducts(): Promise<void> {
   // Get site name first
-  console.log(chalk.cyan(`🔄 Connecting to: ${config.importBaseUrl}`));
+  console.log(chalk.cyan(`🔄 Connecting to: ${getImportBaseUrl()}`));
   
   try {
-    const siteName = await getSiteName(config.importBaseUrl);
+    const siteName = await getSiteName(getImportBaseUrl());
     
     if (shouldConfirm) {
-      console.log(chalk.red.bold(`⚠️ WARNING: This will delete ALL products from: ${chalk.white.bgRed(` ${siteName} (${config.importBaseUrl}) `)}!`));
+      console.log(chalk.red.bold(`⚠️ WARNING: This will delete ALL products from: ${chalk.white.bgRed(` ${siteName} (${getImportBaseUrl()}) `)}!`));
       console.log(chalk.yellow("Run with --confirm flag to skip this confirmation."));
       
       // Ask for explicit confirmation
@@ -83,7 +83,7 @@ async function fetchAllProducts(): Promise<any[]> {
   let hasMorePages = true;
   
   while (hasMorePages) {
-    const url = `${config.importBaseUrl}/wp-json/wc/v3/products?per_page=${config.perPage}&page=${page}`;
+    const url = `${getImportBaseUrl()}/wp-json/wc/v3/products?per_page=100&page=${page}`;
     
     try {
       const products = await fetchJSON(url);
@@ -105,7 +105,7 @@ async function fetchAllProducts(): Promise<any[]> {
 }
 
 async function deleteProduct(id: number): Promise<void> {
-  const url = `${config.importBaseUrl}/wp-json/wc/v3/products/${id}?force=true`;
+  const url = `${getImportBaseUrl()}/wp-json/wc/v3/products/${id}?force=true`;
   
   await fetchJSON(url, {
     method: "DELETE"

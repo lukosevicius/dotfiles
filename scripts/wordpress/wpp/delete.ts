@@ -1,8 +1,10 @@
 import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
-import config from "./config";
+import chalk from "chalk";
+import config, { getImportBaseUrl, getImportCredentials, getMainLanguage, getOtherLanguages } from "./config";
 import { getFlagEmoji } from "./utils/language";
+import { getSiteName } from "./utils/api";
 
 interface CategoryData {
   id: number;
@@ -19,7 +21,7 @@ async function fetchJSON(url: string, options: any = {}): Promise<any> {
       Authorization:
         "Basic " +
         Buffer.from(
-          `${config.importUsername}:${config.importPassword}`
+          `${getImportCredentials().username}:${getImportCredentials().password}`
         ).toString("base64"),
       "Content-Type": "application/json",
     },
@@ -64,7 +66,7 @@ async function deleteCategory(
 ): Promise<boolean> {
   try {
     // Force parameter ensures the category is deleted even if it has children
-    const url = `${config.importBaseUrl}/wp-json/wc/v3/products/categories/${categoryId}?force=true&lang=${lang}`;
+    const url = `${getImportBaseUrl()}/wp-json/wc/v3/products/categories/${categoryId}?force=true&lang=${lang}`;
     const response = await fetchJSON(url, { method: "DELETE" });
 
     console.log(
@@ -90,18 +92,19 @@ async function deleteAllCategories(): Promise<void> {
   };
 
   // Initialize stats for each language
-  const languages = [config.mainLanguage, ...config.otherLanguages];
+  const languages = [getMainLanguage(), ...getOtherLanguages()];
+  console.log(`Deleting categories from ${getMainLanguage()} and ${getOtherLanguages().join(", ")}...`);
   languages.forEach((lang) => {
     stats.byLanguage[lang] = { total: 0, deleted: 0, failed: 0 };
   });
 
   console.log(
-    `Deleting all product categories from ${config.importBaseUrl}...`
+    `Deleting all product categories from ${getImportBaseUrl()}...`
   );
 
   // Get all categories in all languages
   const allCategories = await fetchAllPages(
-    `${config.importBaseUrl}/wp-json/wc/v3/products/categories?lang=all`
+    `${getImportBaseUrl()}/wp-json/wc/v3/products/categories?lang=all`
   );
 
   console.log(`Found ${allCategories.length} categories to delete`);
@@ -111,7 +114,7 @@ async function deleteAllCategories(): Promise<void> {
   const categoriesByLang: Record<string, CategoryData[]> = {};
 
   for (const category of allCategories) {
-    const lang = category.lang || config.mainLanguage;
+    const lang = category.lang || getMainLanguage();
 
     // Ensure the language exists in both objects
     if (!categoriesByLang[lang]) {
@@ -165,7 +168,7 @@ async function deleteAllCategories(): Promise<void> {
   }
 
   // Print deletion statistics
-  console.log("\n📊 Deletion Statistics:");
+  console.log("\n Deletion Statistics:");
   console.log(
     `Total: ${stats.deleted}/${stats.total} deleted, ${stats.failed} failed`
   );
@@ -178,16 +181,16 @@ async function deleteAllCategories(): Promise<void> {
     );
   }
 
-  console.log("\n✅ Deletion process completed");
+  console.log("\n Deletion process completed");
 }
 
 async function main(): Promise<void> {
   try {
     // Ask for confirmation before proceeding
     console.log(
-      "⚠️  WARNING: This will delete ALL product categories from the WordPress site."
+      " WARNING: This will delete ALL product categories from the WordPress site."
     );
-    console.log(`Target site: ${config.importBaseUrl}`);
+    const siteName = await getSiteName(getImportBaseUrl());
     console.log(
       "This action cannot be undone. Make sure you have a backup if needed."
     );

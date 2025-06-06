@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
-import config from "./config";
+import config, { getExportBaseUrl, getExportCredentials, getMainLanguage, getOtherLanguages } from "./config";
 import { getFlagEmoji } from "./utils/language";
 
 // Type for the export data structure
@@ -23,7 +23,7 @@ async function fetchJSON(url: string): Promise<any> {
       Authorization:
         "Basic " +
         Buffer.from(
-          `${config.exportUsername}:${config.exportPassword}`
+          `${getExportCredentials().username}:${getExportCredentials().password}`
         ).toString("base64"),
     },
   });
@@ -78,14 +78,15 @@ async function exportCategories(): Promise<void> {
   }
 
   // Get site name
-  const siteName = await getSiteName(config.exportBaseUrl);
+  const baseUrl = getExportBaseUrl();
+  const siteName = await getSiteName(baseUrl);
 
-  console.log(`🔄 Exporting from: ${config.exportBaseUrl} (${siteName})`);
+  console.log(`🔄 Exporting from: ${baseUrl} (${siteName})`);
   console.log("🔍 Fetching categories from WooCommerce API...");
 
   // Step 1: Fetch all categories in all languages to get translation information
   const allCategories = await fetchAllPages(
-    `${config.exportBaseUrl}/wp-json/wc/v3/products/categories?lang=all`
+    `${baseUrl}/wp-json/wc/v3/products/categories?lang=all`
   );
 
   console.log(`✅ Fetched ${allCategories.length} categories in total`);
@@ -115,14 +116,16 @@ async function exportCategories(): Promise<void> {
   const translationMap: Record<string, Record<string, number>> = {};
 
   // Initialize language buckets
-  categoriesByLang[config.mainLanguage] = [];
-  for (const lang of config.otherLanguages) {
+  const mainLanguage = getMainLanguage();
+  const otherLanguages = getOtherLanguages();
+  categoriesByLang[mainLanguage] = [];
+  for (const lang of otherLanguages) {
     categoriesByLang[lang] = [];
   }
 
   // Process each category
   for (const category of allCategories) {
-    const categoryLang = category.lang || config.mainLanguage;
+    const categoryLang = category.lang || mainLanguage;
 
     // Filter out yoast_head and yoast_head_json fields
     const filteredCategory = { ...category };
@@ -175,8 +178,8 @@ async function exportCategories(): Promise<void> {
   const exportData: ExportData = {
     meta: {
       exported_at: new Date().toISOString(),
-      main_language: config.mainLanguage,
-      other_languages: config.otherLanguages,
+      main_language: mainLanguage,
+      other_languages: otherLanguages,
     },
     translations: {
       wpml: translationMap,

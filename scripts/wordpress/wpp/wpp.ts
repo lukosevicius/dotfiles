@@ -148,7 +148,29 @@ program
       }
       
       displayHeader(`Importing ${contentTypeName}`);
-      await runScript(scriptPath);
+      
+      // Ask for the number of items to import
+      const rl = createPrompt();
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(chalk.cyan(`How many ${selectedContentType} to import? (number or 'all', default: all): `), resolve);
+      });
+      rl.close();
+      
+      // Process the answer
+      let importArgs: string[] = [];
+      if (answer && answer.trim() !== '' && answer.toLowerCase() !== 'all') {
+        const limit = parseInt(answer.trim());
+        if (!isNaN(limit) && limit > 0) {
+          importArgs = ['--limit', limit.toString()];
+          console.log(chalk.yellow(`Will import ${limit} ${selectedContentType} from the main language and their translations`));
+        } else {
+          console.log(chalk.yellow(`Invalid input. Will import all ${selectedContentType}.`));
+        }
+      } else {
+        console.log(chalk.yellow(`Will import all ${selectedContentType}.`));
+      }
+      
+      await runScript(scriptPath, importArgs);
       console.log(chalk.green.bold(`✓ ${contentTypeName} import completed successfully!`));
     } catch (error) {
       console.error(chalk.red.bold("✗ Import failed:"), error);
@@ -352,12 +374,9 @@ async function showOperationsMenu(): Promise<void> {
   const operations = [
     { id: "sites", name: "Manage sites", description: "View and manage WordPress sites" },
     { id: "export", name: `Export ${selectedContentType}`, description: `Export ${selectedContentType} from ${chalk.green(exportSite.name)}` },
-    { id: "download-images", name: `Download images only`, description: `Download all images without importing` },
-    { id: "download-images-force", name: `Force download all images`, description: `Download all images (overwrite existing)` },
+    { id: "download-images", name: `Download images`, description: `Download all images without importing` },
     { id: "convert-to-webp", name: `Convert images to WebP`, description: `Convert downloaded images to WebP format` },
     { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to ${chalk.blue(importSite.name)}` },
-    { id: "import-with-images", name: `Import with images`, description: `Import and download all images (--download-images)` },
-    { id: "import-no-images", name: `Import without images`, description: `Import using only local images (--skip-image-download)` },
     { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from ${getImportSite().name}` },
     { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
     { id: "complete", name: "Complete workflow", description: "Run the complete export-test-import workflow" },
@@ -407,7 +426,7 @@ async function showOperationsMenu(): Promise<void> {
   }
   
   // Handle image download options
-  if (selectedOperation.id === "download-images" || selectedOperation.id === "download-images-force") {
+  if (selectedOperation.id === "download-images") {
     // Check if script exists
     if (!fs.existsSync(downloadImagesScript)) {
       console.error(chalk.red(`Download images script not found at: ${downloadImagesScript}`));
@@ -416,7 +435,15 @@ async function showOperationsMenu(): Promise<void> {
     }
     
     const contentTypeFlag = selectedContentType === "categories" ? "--categories" : "--products";
-    const forceFlag = selectedOperation.id === "download-images-force" ? "--force" : "";
+    
+    // Ask if user wants to force download
+    const rlForce = createPrompt();
+    const forceAnswer = await new Promise<string>((resolve) => {
+      rlForce.question(chalk.cyan("\nForce download all images (overwrite existing)? (y/N): "), resolve);
+    });
+    rlForce.close();
+    
+    const forceFlag = forceAnswer.toLowerCase() === 'y' ? "--force" : "";
     
     displayHeader(`Downloading ${selectedContentType} Images`);
     await runScript(downloadImagesScript, [contentTypeFlag, forceFlag].filter(Boolean));
@@ -456,8 +483,8 @@ async function showOperationsMenu(): Promise<void> {
     return;
   }
   
-  // Handle special import options
-  if (selectedOperation.id === "import-with-images") {
+  // Handle import with limit option
+  if (selectedOperation.id === "import") {
     const scriptPath = selectedContentType === "categories" ? categoryImportScript : productImportScript;
     const contentTypeName = selectedContentType === "categories" ? "Categories" : "Products";
     
@@ -468,30 +495,28 @@ async function showOperationsMenu(): Promise<void> {
       process.exit(1);
     }
     
-    displayHeader(`Importing ${contentTypeName} with Images`);
-    await runScript(scriptPath, ["--download-images"]);
-    console.log(chalk.green.bold(`✓ ${contentTypeName} import with images completed successfully!`));
-    return;
-  }
-  
-  if (selectedOperation.id === "import-no-images") {
-    const scriptPath = selectedContentType === "categories" ? categoryImportScript : productImportScript;
-    const contentTypeName = selectedContentType === "categories" ? "Categories" : "Products";
+    // Ask how many items to import
+    const rlLimit = createPrompt();
+    const limitAnswer = await new Promise<string>((resolve) => {
+      rlLimit.question(chalk.cyan(`\nHow many ${selectedContentType} to import? (Enter a number or 'all', default: all): `), resolve);
+    });
+    rlLimit.close();
     
-    // Check if script exists
-    if (!fs.existsSync(scriptPath)) {
-      console.error(chalk.red(`Import script for ${selectedContentType} not found at: ${scriptPath}`));
-      console.log(chalk.yellow(`Please implement the ${path.basename(scriptPath)} script first.`));
-      process.exit(1);
+    let limitFlag: string[] = [];
+    if (limitAnswer && limitAnswer.toLowerCase() !== 'all' && !isNaN(parseInt(limitAnswer))) {
+      const limit = parseInt(limitAnswer);
+      if (limit > 0) {
+        limitFlag = ["--limit", limit.toString()];
+      }
     }
     
-    displayHeader(`Importing ${contentTypeName} without Images`);
-    await runScript(scriptPath, ["--skip-image-download"]);
-    console.log(chalk.green.bold(`✓ ${contentTypeName} import without images completed successfully!`));
+    displayHeader(`Importing ${contentTypeName}`);
+    await runScript(scriptPath, [...limitFlag]);
+    console.log(chalk.green.bold(`✓ ${contentTypeName} import completed successfully!`));
     return;
   }
   
-  // Execute the standard operation
+  // Execute the standard operation for other commands
   await program.parseAsync([process.argv[0], process.argv[1], selectedOperation.id]);
 }
 
@@ -774,7 +799,28 @@ program
           }
         }
         
-        await runScript(importScriptPath);
+        // Ask how many items to import
+        const rlLimit = createPrompt();
+        const limitAnswer = await new Promise<string>((resolve) => {
+          rlLimit.question(chalk.cyan(`\nHow many ${selectedContentType} to import? (number or 'all', default: all): `), resolve);
+        });
+        rlLimit.close();
+        
+        // Process the answer
+        let importArgs: string[] = [];
+        if (limitAnswer && limitAnswer.trim() !== '' && limitAnswer.toLowerCase() !== 'all') {
+          const limit = parseInt(limitAnswer.trim());
+          if (!isNaN(limit) && limit > 0) {
+            importArgs = ['--limit', limit.toString()];
+            console.log(chalk.yellow(`Will import ${limit} ${selectedContentType} from the main language and their translations`));
+          } else {
+            console.log(chalk.yellow(`Invalid input. Will import all ${selectedContentType}.`));
+          }
+        } else {
+          console.log(chalk.yellow(`Will import all ${selectedContentType}.`));
+        }
+        
+        await runScript(importScriptPath, importArgs);
         console.log(chalk.green.bold(`✓ ${contentTypeName} import completed successfully!`));
       } else {
         console.log(chalk.yellow("Import step skipped."));

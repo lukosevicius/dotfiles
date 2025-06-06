@@ -71,8 +71,8 @@ function loadEnvSettings(): EnvSettings {
 // Main configuration
 const config: Config = {
   // Global settings
-  outputDir: "/Users/mantas/Downloads/export",
-  inputFile: "/Users/mantas/Downloads/export/exported-categories.json",
+  outputDir: "/Users/mantas/files/export",
+  inputFile: "/Users/mantas/files/export/exported-categories.json",
   perPage: 100, // Number of items per page (max 100 for WooCommerce API)
   skipExisting: true, // Skip categories that already exist
 
@@ -125,7 +125,7 @@ const config: Config = {
       description: "Production environment",
       baseUrl: "https://7ievosnamai.lt/",
       username: "sandelis",
-      password: "Qwej cH6Y Hkar sdGq c6Q5 73s9",
+      password: "LeMG ASCN ksTJ jGgs L4Bj 4fiv",
       mainLanguage: "lt",
       otherLanguages: ["en", "lv", "ru", "de"],
     },
