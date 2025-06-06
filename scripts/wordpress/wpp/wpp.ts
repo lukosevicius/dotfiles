@@ -497,7 +497,16 @@ async function showOperationsMenu(): Promise<void> {
     displayHeader(`Downloading ${selectedContentType} Images`);
     await runScript(downloadImagesScript, [contentTypeFlag, forceFlag].filter(Boolean));
     console.log(chalk.green.bold(`✓ Image download completed successfully!`));
-    return;
+    
+    // Return to the operations menu after completion
+    console.log(chalk.blue("\nPress Enter to return to the menu..."));
+    const rlContinue = createPrompt();
+    await new Promise<void>((resolve) => {
+      rlContinue.question("", () => resolve());
+    });
+    rlContinue.close();
+    
+    return await showOperationsMenu();
   }
   
   // Handle WebP conversion
@@ -529,7 +538,16 @@ async function showOperationsMenu(): Promise<void> {
     displayHeader(`Converting Images to WebP`);
     await runScript(convertToWebpScript, [contentTypeFlag, ...qualityFlag].filter(Boolean));
     console.log(chalk.green.bold(`✓ WebP conversion completed successfully!`));
-    return;
+    
+    // Return to the operations menu after completion
+    console.log(chalk.blue("\nPress Enter to return to the menu..."));
+    const rlContinue = createPrompt();
+    await new Promise<void>((resolve) => {
+      rlContinue.question("", () => resolve());
+    });
+    rlContinue.close();
+    
+    return await showOperationsMenu();
   }
   
   // Handle import with limit option
@@ -562,11 +580,32 @@ async function showOperationsMenu(): Promise<void> {
     displayHeader(`Importing ${contentTypeName}`);
     await runScript(scriptPath, [...limitFlag]);
     console.log(chalk.green.bold(`✓ ${contentTypeName} import completed successfully!`));
-    return;
+    
+    // Return to the operations menu after completion
+    console.log(chalk.blue("\nPress Enter to return to the menu..."));
+    const rlContinue = createPrompt();
+    await new Promise<void>((resolve) => {
+      rlContinue.question("", () => resolve());
+    });
+    rlContinue.close();
+    
+    return await showOperationsMenu();
   }
   
   // Execute the standard operation for other commands
   await program.parseAsync([process.argv[0], process.argv[1], selectedOperation.id]);
+  
+  // Return to the operations menu after completion (for export, delete, test, etc.)
+  if (selectedOperation.id !== "exit" && selectedOperation.id !== "select-type") {
+    console.log(chalk.blue("\nPress Enter to return to the menu..."));
+    const rlContinue = createPrompt();
+    await new Promise<void>((resolve) => {
+      rlContinue.question("", () => resolve());
+    });
+    rlContinue.close();
+    
+    return await showOperationsMenu();
+  }
 }
 
 /**

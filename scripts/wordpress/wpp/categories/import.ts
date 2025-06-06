@@ -493,12 +493,38 @@ async function categoryExists(
  * Create a translation relationship between categories
  */
 async function createTranslationRelationship(
-  translationData: Record<string, number>
-): Promise<void> {
+  translationData: Record<string, number>,
+  mainLanguage: string
+): Promise<boolean> {
+  const importSite = getImportSite();
+  
   try {
-    // Create a translation relationship
+    // Log which categories are being connected
+    console.log(chalk.cyan("Connecting translations:"));
+    for (const [lang, id] of Object.entries(translationData)) {
+      console.log(chalk.cyan(`  - ${getFlagEmoji(lang)} ${lang}: ID ${id}`));
+    }
+    
+    // Only use the primary WPML REST API endpoint for product_cat
+    console.log(chalk.dim("Using WPML product_cat translations endpoint..."));
+    
+    // Make sure we have the main language ID
+    if (!translationData[mainLanguage]) {
+      console.log(chalk.yellow(`⚠️ Main language ${mainLanguage} ID not found in translation data. Cannot connect translations.`));
+      return false;
+    }
+    
+    const mainLangId = translationData[mainLanguage];
+    
+    // Log translation connections in a more readable format - connect non-main languages to main language
+    for (const [lang, id] of Object.entries(translationData)) {
+      if (lang !== mainLanguage) {
+        console.log(chalk.dim(`Connecting id ${id} (${lang}) to ${mainLangId} (${mainLanguage})`));
+      }
+    }
+    
     const response = await fetchJSON(
-      `${getImportSite().baseUrl}/wp-json/wp/v2/posts/translate`,
+      `${importSite.baseUrl}/wp-json/wpml/v1/product_cat/translations`,
       {
         method: "POST",
         body: JSON.stringify(translationData),
@@ -508,14 +534,13 @@ async function createTranslationRelationship(
       }
     );
 
-    if (!response || !response.success) {
-      throw new Error(
-        `Failed to create translation relationship: ${JSON.stringify(response)}`
-      );
-    }
+    console.log(chalk.green("✓ Successfully created translation relationships"));
+    return true;
   } catch (error) {
-    console.error("Error creating translation relationship:", error);
-    throw error;
+    console.error(chalk.red("✗ Error creating translation relationship:"), 
+      error instanceof Error ? error.message : String(error));
+    console.log(chalk.yellow("⚠️ Translation endpoint failed. Translations will need to be set up manually."));
+    return false; // Failed but we'll continue with import
   }
 }
 
@@ -548,10 +573,25 @@ async function importCategoriesForLanguage(
   }
   
   for (const category of categoriesToImport) {
-    console.log(`Processing "${category.name}" (${category.slug})...`);
+    // Fix for Russian slug encoding issues - ensure slug is properly decoded
+    // This prevents URL-encoded slugs from being used as-is in the database
+    let slug = category.slug;
+    try {
+      // Check if the slug appears to be URL-encoded (contains % followed by hex digits)
+      if (/%[0-9A-Fa-f]{2}/.test(slug)) {
+        const decodedSlug = decodeURIComponent(slug);
+        console.log(`Processing "${category.name}" (${decodedSlug})...`);
+        slug = decodedSlug;
+      } else {
+        console.log(`Processing "${category.name}" (${slug})...`);
+      }
+    } catch (error) {
+      console.log(`Processing "${category.name}" (${slug})...`);
+      console.log(chalk.yellow(`  Warning: Could not decode slug "${slug}", using as-is`));
+    }
 
     // Check if category already exists
-    const existingId = await categoryExists(category.slug, lang);
+    const existingId = await categoryExists(slug, lang);
     if (existingId && config.skipExisting) {
       console.log(`  SKIPPED (already exists with ID: ${existingId})`);
       stats.categories.skipped++;
@@ -568,7 +608,7 @@ async function importCategoriesForLanguage(
       let newImageId: number | null = null;
       if (category.image) {
         // Use the category slug for the image filename
-        newImageId = await processImage(category.image, stats, category.slug);
+        newImageId = await processImage(category.image, stats, slug);
       }
 
       // Create category
@@ -578,7 +618,7 @@ async function importCategoriesForLanguage(
           method: "POST",
           body: JSON.stringify({
             name: category.name,
-            slug: category.slug,
+            slug: slug, // Use the potentially decoded slug
             parent: 0, // We'll update parent relationships later
             description: category.description || "",
             image: newImageId ? { id: newImageId } : null,
@@ -684,7 +724,7 @@ async function importCategories(): Promise<void> {
     // Show clear import information and ask for confirmation
     console.log(chalk.yellow.bold(`\n⚠️ IMPORT CONFIRMATION`));
     console.log(chalk.yellow(`You are about to import categories:`));
-    console.log(chalk.yellow(`- FROM: ${chalk.white(sourceSiteName)} (export file)`));
+    console.log(chalk.yellow(`- FROM: ${chalk.white(sourceSiteName)} (${exportData.meta.source_site || 'Unknown domain'}) (export file)`));
     console.log(chalk.yellow(`- TO:   ${chalk.white.bgBlue(` ${targetSiteName} (${importSite.baseUrl}) `)}`));
     
     // Show image download settings
@@ -768,13 +808,14 @@ async function importCategories(): Promise<void> {
           continue;
         }
 
-        // Create a translation relationship
+        // Create a translation relationship using the new WordPress IDs
         const translationData: Record<string, number> = {};
 
         // Start with the main language category as the "original"
         let originalId: number | undefined = undefined;
         const mainLanguage = meta.main_language;
-        
+
+        // First, add the main language category if available
         if (langMap[mainLanguage] && idMap[mainLanguage] && idMap[mainLanguage][langMap[mainLanguage]]) {
           originalId = idMap[mainLanguage][langMap[mainLanguage]];
           translationData[mainLanguage] = originalId;
@@ -784,7 +825,7 @@ async function importCategories(): Promise<void> {
         if (originalId === undefined) {
           const firstLang = mappedLangs[0][0];
           const firstId = mappedLangs[0][1] as number;
-          if (idMap[firstLang]) {
+          if (idMap[firstLang] && idMap[firstLang][firstId] !== undefined) {
             originalId = idMap[firstLang][firstId];
             translationData[firstLang] = originalId;
           }
@@ -792,11 +833,11 @@ async function importCategories(): Promise<void> {
 
         // Add translations for other languages
         for (const [lang, id] of Object.entries(langMap)) {
+          // Make sure we have a valid mapping for this language and ID
           if (
-            lang !== mainLanguage &&
-            idMap[lang] &&
-            idMap[lang][id] !== undefined &&
-            idMap[lang][id] !== originalId
+            idMap[lang] && 
+            idMap[lang][id] !== undefined && 
+            (lang !== mainLanguage || idMap[lang][id] !== originalId)
           ) {
             translationData[lang] = idMap[lang][id];
           }
@@ -804,8 +845,13 @@ async function importCategories(): Promise<void> {
 
         // If we have at least two languages in this group, count it as a successful connection
         if (Object.keys(translationData).length >= 2) {
-          await createTranslationRelationship(translationData);
-          translationsSucceeded++;
+          const success = await createTranslationRelationship(translationData, mainLanguage);
+          if (success) {
+            translationsSucceeded++;
+          } else {
+            translationsFailed++;
+            console.log(chalk.yellow(`⚠️ Translation setup failed for group ${slug}, but import will continue`));
+          }
         }
 
         translationsProcessed++;
@@ -841,6 +887,9 @@ async function importCategories(): Promise<void> {
     console.log("\nTranslations:");
     console.log(
       `- ${translationsSucceeded} successfully connected via translation_of parameter`
+    );
+    console.log(
+      `- ${translationsFailed} failed to connect (WPML API unavailable)`
     );
 
     // Only show image stats if any images were processed

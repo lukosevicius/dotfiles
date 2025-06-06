@@ -7,7 +7,8 @@ import {
   getExportBaseUrl,
   getImportBaseUrl,
   getExportCredentials,
-  getImportCredentials
+  getImportCredentials,
+  getImportSite
 } from "./config-utils";
 
 /**
@@ -15,33 +16,55 @@ import {
  * Handles both import and export authentication based on the URL
  */
 export async function fetchJSON(url: string, options: any = {}): Promise<any> {
-  // Determine which credentials to use based on the URL
-  const importBaseUrl = getImportBaseUrl();
-  const exportBaseUrl = getExportBaseUrl();
+  const site = getImportSite();
   
-  const isImportUrl = url.includes(importBaseUrl);
-  
-  // Get the appropriate credentials
-  const credentials = isImportUrl 
-    ? getImportCredentials() 
-    : getExportCredentials();
-  
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      ...(options?.headers || {}),
-      Authorization:
-        "Basic " +
-        Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64"),
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status} - ${url}\n${text}`);
+  // Add authentication if not already provided
+  if (!options.headers) {
+    options.headers = {};
   }
-  return await res.json();
+  
+  if (!options.headers.Authorization && site.username && site.password) {
+    const auth = Buffer.from(`${site.username}:${site.password}`).toString('base64');
+    options.headers.Authorization = `Basic ${auth}`;
+  }
+
+  try {
+    const response = await fetch(url, options);
+    const contentType = response.headers.get('content-type');
+    
+    let responseData;
+    if (contentType && contentType.includes('application/json')) {
+      responseData = await response.json();
+    } else {
+      responseData = await response.text();
+    }
+
+    if (!response.ok) {
+      // Format error message with proper encoding for non-ASCII characters
+      let errorMessage = `HTTP ${response.status} - ${url}`;
+      
+      if (responseData) {
+        if (typeof responseData === 'object') {
+          // For better display of error messages with non-ASCII characters
+          if (responseData.message) {
+            // Ensure proper UTF-8 encoding for the message
+            const formattedMessage = responseData.message;
+            errorMessage += `\n${JSON.stringify({...responseData, message: formattedMessage})}`;  
+          } else {
+            errorMessage += `\n${JSON.stringify(responseData)}`;  
+          }
+        } else {
+          errorMessage += `\n${responseData}`;
+        }
+      }
+      
+      throw new Error(errorMessage);
+    }
+    
+    return responseData;
+  } catch (error) {
+    throw error;
+  }
 }
 
 /**

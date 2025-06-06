@@ -18,42 +18,61 @@ interface CategoryData {
   lang?: string;
 }
 
-export async function deleteCategory(categoryId: number, lang: string): Promise<boolean> {
+/**
+ * Delete a single category by ID and language
+ * @param categoryId - The ID of the category to delete
+ * @param lang - The language code of the category
+ * @returns true if deleted successfully, 'default' if skipped due to being a default category, false if failed
+ */
+export async function deleteCategory(categoryId: number, lang: string): Promise<boolean | 'default'> {
+  const importSite = getImportSite();
   try {
-    // Force parameter ensures the category is deleted even if it has children
-    const importSite = getImportSite();
+    // First try to get the category details to show better error messages
+    try {
+      const detailsUrl = `${importSite.baseUrl}/wp-json/wc/v3/products/categories/${categoryId}?lang=${lang}`;
+      const categoryDetails = await fetchJSON(detailsUrl);
+      
+      // Check if this is a default category based on metadata or slug
+      if (categoryDetails.slug === 'uncategorized' || 
+          categoryDetails.slug === 'uncategorised' || 
+          categoryDetails.slug === 'default' ||
+          (categoryDetails.meta && categoryDetails.meta.is_default)) {
+        console.log(chalk.yellow(`⚠️ Skipping default category: ${categoryDetails.name} (ID: ${categoryId}, Lang: ${lang})`));
+        return 'default';
+      }
+    } catch (detailsError) {
+      // Silently continue if we can't get details - we'll try to delete anyway
+    }
+    
+    // Proceed with deletion
     const url = `${importSite.baseUrl}/wp-json/wc/v3/products/categories/${categoryId}?force=true&lang=${lang}`;
     const response = await fetchJSON(url, { method: "DELETE" });
-
-    console.log(
-      chalk.green(`✓ Deleted category: ${response.name} (ID: ${response.id}, Lang: ${lang})`)
-    );
+    console.log(chalk.green(`✓ Deleted category: ${response.name} (ID: ${response.id}, Lang: ${lang})`));
     return true;
   } catch (error: any) {
-    // Check if this is the default category which cannot be deleted
+    // Handle specific error cases
     if (error.message && typeof error.message === 'string') {
-      // Check for default category error messages
-      if (error.message.includes('term is shared') || 
-          error.message.includes('default') || 
-          (error.message.includes('HTTP 500') && error.message.includes('cannot_delete'))) {
-        console.log(chalk.yellow(`⚠️ Skipping category ID ${categoryId} (Lang: ${lang}) - This is a default category that cannot be deleted`));
-        // We return true here to indicate that we handled this case and should continue with other categories
-        return true;
+      const errorMsg = error.message.toLowerCase();
+      
+      // Default category detection
+      if (errorMsg.includes('term is shared') || 
+          errorMsg.includes('default') || 
+          errorMsg.includes('uncategorized') || 
+          errorMsg.includes('uncategorised') || 
+          (errorMsg.includes('http 500') && errorMsg.includes('cannot_delete'))) {
+        console.log(chalk.yellow(`⚠️ Skipping category ID ${categoryId} (Lang: ${lang}) - This appears to be a default category that cannot be deleted`));
+        return 'default';
       }
       
-      // Check for permission issues
-      if (error.message.includes('permission') || error.message.includes('401') || error.message.includes('403')) {
+      // Permission issues
+      if (errorMsg.includes('permission') || errorMsg.includes('401') || errorMsg.includes('403')) {
         console.log(chalk.red(`✗ Permission denied when deleting category ID ${categoryId} (Lang: ${lang})`));
         return false;
       }
-    }
-    
-    // Check the error response for more details
-    if (error.response && typeof error.response === 'object') {
-      const response = error.response;
-      if (response.code === 'woocommerce_rest_cannot_delete' && response.message && response.message.includes('Default')) {
-        console.log(chalk.yellow(`⚠️ Skipping category ID ${categoryId} (Lang: ${lang}) - This is a default category that cannot be deleted`));
-        // We return true here to indicate that we handled this case and should continue with other categories
+      
+      // Category not found
+      if (errorMsg.includes('404') || errorMsg.includes('not found')) {
+        console.log(chalk.yellow(`⚠️ Category ID ${categoryId} (Lang: ${lang}) not found - may have been already deleted`));
         return true;
       }
     }
@@ -63,16 +82,19 @@ export async function deleteCategory(categoryId: number, lang: string): Promise<
   }
 }
 
+/**
+ * Fetch all categories from all languages
+ */
 async function fetchAllCategories(): Promise<any[]> {
   let page = 1;
   let allCategories: any[] = [];
   let hasMorePages = true;
+  const importSite = getImportSite();
   
   console.log(chalk.cyan("Fetching all categories from all languages..."));
   
-  // First try with lang=all parameter
+  // First try with lang=all parameter which should get all categories across languages
   while (hasMorePages) {
-    const importSite = getImportSite();
     const url = `${importSite.baseUrl}/wp-json/wc/v3/products/categories?per_page=100&page=${page}&lang=all`;
     
     try {
@@ -86,24 +108,54 @@ async function fetchAllCategories(): Promise<any[]> {
         page++;
       }
     } catch (error) {
-      console.error(chalk.red(`Error fetching categories page ${page}:`), error);
+      console.error(chalk.red(`Error fetching categories with lang=all parameter:`), error);
+      console.log(chalk.yellow("Falling back to fetching categories by individual languages..."));
       hasMorePages = false;
     }
   }
   
-  // If we didn't get any categories or very few, try fetching for each language separately
+  // Try to detect available languages from the site
+  let availableLanguages: string[] = [];
+  
+  try {
+    // Try to get languages from WPML API
+    const wpmlUrl = `${importSite.baseUrl}/wp-json/wpml/v1/active_languages`;
+    try {
+      const wpmlResponse = await fetchJSON(wpmlUrl);
+      if (Array.isArray(wpmlResponse)) {
+        availableLanguages = wpmlResponse.map((lang: any) => lang.code || lang.slug || lang);
+        console.log(chalk.green(`✓ Detected languages from WPML API: ${availableLanguages.join(', ')}`));
+      }
+    } catch (wpmlError) {
+      // Try Polylang API
+      try {
+        const polylangUrl = `${importSite.baseUrl}/wp-json/pll/v1/languages`;
+        const polylangResponse = await fetchJSON(polylangUrl);
+        if (Array.isArray(polylangResponse)) {
+          availableLanguages = polylangResponse.map((lang: any) => lang.slug || lang.code || lang);
+          console.log(chalk.green(`✓ Detected languages from Polylang API: ${availableLanguages.join(', ')}`));
+        }
+      } catch (polylangError) {
+        // Fallback to default languages
+        availableLanguages = ['en', 'lt', 'ru', 'lv', 'de'];
+        console.log(chalk.yellow(`Could not detect languages from API. Using defaults: ${availableLanguages.join(', ')}`));
+      }
+    }
+  } catch (error) {
+    // Fallback to default languages
+    availableLanguages = ['en', 'lt', 'ru', 'lv', 'de'];
+    console.log(chalk.yellow(`Could not detect languages from API. Using defaults: ${availableLanguages.join(', ')}`));
+  }
+  
+  // If we didn't get enough categories with lang=all, try fetching for each language separately
   if (allCategories.length < 5) {
     console.log(chalk.yellow(`Only found ${allCategories.length} categories with lang=all parameter. Trying individual languages...`));
     
-    // Get languages from config or use defaults
-    const languages = ['en', 'lt', 'ru']; // Default languages if not specified
-    
-    for (const lang of languages) {
+    for (const lang of availableLanguages) {
       page = 1;
       hasMorePages = true;
       
       while (hasMorePages) {
-        const importSite = getImportSite();
         const url = `${importSite.baseUrl}/wp-json/wc/v3/products/categories?per_page=100&page=${page}&lang=${lang}`;
         
         try {
@@ -113,110 +165,129 @@ async function fetchAllCategories(): Promise<any[]> {
             hasMorePages = false;
           } else {
             // Add language info to each category
-            const categoriesWithLang = categories.map((cat: any) => ({
-              ...cat,
-              lang
-            }));
+            const categoriesWithLang = categories.map((cat: any) => ({ ...cat, lang }));
             
             // Check for duplicates before adding
-            const newCategories = categoriesWithLang.filter((newCat: any) => 
-              !allCategories.some((existingCat: any) => existingCat.id === newCat.id)
+            const newCategories = categoriesWithLang.filter(
+              (newCat: any) => !allCategories.some((existingCat: any) => existingCat.id === newCat.id)
             );
             
-            if (newCategories.length > 0) {
-              allCategories = [...allCategories, ...newCategories];
-              console.log(chalk.dim(`Fetched page ${page} for ${lang} (${newCategories.length} new categories)`));
-            }
+            allCategories = [...allCategories, ...newCategories];
+            console.log(chalk.dim(`Fetched page ${page} for ${lang} (${categories.length} categories, ${newCategories.length} new)`));
             page++;
           }
         } catch (error) {
-          console.error(chalk.red(`Error fetching categories page ${page} for ${lang}:`), error);
+          console.log(chalk.yellow(`Could not fetch categories for language ${lang}. Skipping.`));
           hasMorePages = false;
         }
       }
     }
   }
   
-  // Log some details about the categories we found
-  if (allCategories.length > 0) {
-    console.log(chalk.green(`Found a total of ${allCategories.length} categories`));
+  // If we still don't have language info for some categories, try to infer it
+  const categoriesWithoutLang = allCategories.filter(cat => !cat.lang);
+  if (categoriesWithoutLang.length > 0) {
+    console.log(chalk.yellow(`Found ${categoriesWithoutLang.length} categories without language info. Trying to infer language...`));
     
-    // Log the first few categories to help with debugging
-    console.log(chalk.dim("Sample categories:"));
-    for (let i = 0; i < Math.min(5, allCategories.length); i++) {
-      const cat = allCategories[i];
-      console.log(chalk.dim(`- ${cat.name} (ID: ${cat.id}, Lang: ${cat.lang || 'unknown'})`));
+    // Try to get language info from the API
+    for (const cat of categoriesWithoutLang) {
+      try {
+        const url = `${importSite.baseUrl}/wp-json/wc/v3/products/categories/${cat.id}`;
+        const detailedCat = await fetchJSON(url);
+        
+        if (detailedCat && detailedCat.lang) {
+          // Update the category in our array
+          const index = allCategories.findIndex(c => c.id === cat.id);
+          if (index !== -1) {
+            allCategories[index].lang = detailedCat.lang;
+            console.log(chalk.dim(`Inferred language ${detailedCat.lang} for category ${cat.name} (ID: ${cat.id})`));
+          }
+        }
+      } catch (error) {
+        // Silent fail - we'll handle these in the next step
+      }
     }
-  } else {
-    console.log(chalk.yellow("No categories found. This could indicate an issue with the API or permissions."));
   }
   
+  // For any remaining categories without language, assign a default
+  const stillWithoutLang = allCategories.filter(cat => !cat.lang);
+  if (stillWithoutLang.length > 0) {
+    console.log(chalk.yellow(`Still have ${stillWithoutLang.length} categories without language info. Assigning default language 'en'...`));
+    
+    for (const cat of stillWithoutLang) {
+      const index = allCategories.findIndex(c => c.id === cat.id);
+      if (index !== -1) {
+        allCategories[index].lang = 'en';
+      }
+    }
+  }
+  
+  console.log(chalk.green(`✓ Successfully fetched ${allCategories.length} categories across ${availableLanguages.length} languages`));
   return allCategories;
 }
 
 export async function deleteAllCategories(): Promise<void> {
   try {
-    // Statistics for deletion
-    const stats = {
-      total: 0,
-      deleted: 0,
-      failed: 0,
-      byLanguage: {} as Record<string, { total: number; deleted: number; failed: number }>,
-    };
-
-    // Initialize stats for each language
-    // Get languages from the export file or use defaults
-    const languages = ['en', 'lt', 'ru']; // Default languages if not specified
-    languages.forEach((lang) => {
-      stats.byLanguage[lang] = { total: 0, deleted: 0, failed: 0 };
-    });
-
-    const importSite = getImportSite();
-    console.log(chalk.cyan(`🔄 Deleting all product categories from ${importSite.baseUrl}...`));
-
-    // Get all categories in all languages
-    console.log(chalk.cyan("📋 Fetching category list..."));
-    
+    // Fetch all categories from all languages
     const allCategories = await fetchAllCategories();
     
     if (allCategories.length === 0) {
-      console.log(chalk.yellow("No categories found to delete."));
+      console.log(chalk.yellow("No categories found to delete. Exiting."));
       return;
     }
-
-    console.log(chalk.yellow(`Found ${allCategories.length} categories to delete`));
-    stats.total = allCategories.length;
-
+    
+    console.log(chalk.cyan(`\nFound ${allCategories.length} categories to process`));
+    
+    // Statistics for deletion
+    const stats = {
+      total: allCategories.length,
+      deleted: 0,
+      failed: 0,
+      skipped: 0,
+      byLanguage: {} as Record<string, { total: number; deleted: number; failed: number; skipped: number }>
+    };
+    
     // Group categories by language
     const categoriesByLang: Record<string, CategoryData[]> = {};
-
+    const detectedLanguages = new Set<string>();
+    
     for (const category of allCategories) {
-      const lang = category.lang || 'en'; // Default to English if language not specified
-
-      // Ensure the language exists in both objects
+      const lang = category.lang || 'en'; // Default to 'en' if no language specified
+      detectedLanguages.add(lang);
+      
       if (!categoriesByLang[lang]) {
         categoriesByLang[lang] = [];
       }
-
-      // Make sure stats.byLanguage has an entry for this language
-      if (!stats.byLanguage[lang]) {
-        stats.byLanguage[lang] = { total: 0, deleted: 0, failed: 0 };
-      }
-
-      categoriesByLang[lang].push(category);
-      stats.byLanguage[lang].total++;
+      
+      categoriesByLang[lang].push({
+        id: category.id,
+        name: category.name,
+        slug: category.slug,
+        lang
+      });
     }
-
-    // Display categories by language
+    
+    // Initialize stats for each language
+    for (const lang of detectedLanguages) {
+      stats.byLanguage[lang] = {
+        total: categoriesByLang[lang]?.length || 0,
+        deleted: 0,
+        failed: 0,
+        skipped: 0
+      };
+    }
+    
     console.log(chalk.cyan("\nCategories by language:"));
-    for (const [lang, categories] of Object.entries(categoriesByLang)) {
+    for (const [lang, langCategories] of Object.entries(categoriesByLang)) {
       const flag = getFlagEmoji(lang);
-      console.log(`- ${flag} ${lang}: ${chalk.yellow(categories.length.toString())} categories`);
+      console.log(`- ${flag} ${lang}: ${chalk.yellow(langCategories.length.toString())} categories`);
     }
 
     // Delete categories for each language in categoriesByLang
-    for (const [lang, categories] of Object.entries(categoriesByLang)) {
-      if (categories.length === 0) {
+    for (const lang of Array.from(detectedLanguages).sort()) {
+      const langCategories = categoriesByLang[lang] || [];
+      
+      if (langCategories.length === 0) {
         console.log(chalk.dim(`No categories found for language: ${lang} ${getFlagEmoji(lang)}`));
         continue;
       }
@@ -225,30 +296,44 @@ export async function deleteAllCategories(): Promise<void> {
 
       // Sort categories by ID in descending order to delete children before parents
       // This helps avoid dependency issues
-      const sortedCategories = [...categoriesByLang[lang]].sort(
-        (a, b) => b.id - a.id
-      );
+      const sortedCategories = [...langCategories].sort((a, b) => b.id - a.id);
 
       let categoryCount = 0;
       let processedCount = 0;
+      let batchCount = 0;
       const totalCategories = sortedCategories.length;
+      const batchSize = 10; // Show progress every 10 categories
       
       for (const category of sortedCategories) {
         categoryCount++;
         processedCount++;
         
-        // Show progress every 5 categories or for the last one
-        if (processedCount >= 5 || categoryCount === totalCategories) {
-          console.log(chalk.dim(`Progress: ${categoryCount}/${totalCategories} categories`));
+        // Show progress at regular intervals or for the last one
+        if (processedCount >= batchSize || categoryCount === totalCategories) {
+          batchCount++;
+          const percentComplete = Math.floor((categoryCount / totalCategories) * 100);
+          console.log(chalk.dim(`Batch ${batchCount}: Progress ${categoryCount}/${totalCategories} categories (${percentComplete}%)`));
           processedCount = 0;
         }
         
-        const success = await deleteCategory(category.id, lang);
+        try {
+          const result = await deleteCategory(category.id, lang);
 
-        if (success) {
-          stats.deleted++;
-          stats.byLanguage[lang].deleted++;
-        } else {
+          if (result === true) {
+            // Successfully deleted
+            stats.deleted++;
+            stats.byLanguage[lang].deleted++;
+          } else if (result === 'default') {
+            // Default category that was skipped
+            stats.skipped++;
+            stats.byLanguage[lang].skipped++;
+          } else {
+            // Failed to delete
+            stats.failed++;
+            stats.byLanguage[lang].failed++;
+          }
+        } catch (error) {
+          console.error(chalk.red(`Error deleting category ${category.name} (ID: ${category.id}, Lang: ${lang}):`), error);
           stats.failed++;
           stats.byLanguage[lang].failed++;
         }
@@ -265,15 +350,20 @@ export async function deleteAllCategories(): Promise<void> {
     console.log(chalk.cyan(`Total categories processed: ${stats.total}`));
     console.log(chalk.green(`Successfully deleted: ${stats.deleted}`));
     
+    if (stats.skipped > 0) {
+      console.log(chalk.yellow(`Categories skipped: ${stats.skipped}`));
+    }
+    
     if (stats.failed > 0) {
       console.log(chalk.red(`Failed to delete: ${stats.failed}`));
     }
 
     console.log(chalk.cyan(`\nBy language:`));
-    for (const [lang, langStats] of Object.entries(stats.byLanguage)) {
-      if (langStats.total > 0) {
+    for (const lang of Array.from(detectedLanguages).sort()) {
+      const langStats = stats.byLanguage[lang];
+      if (langStats && langStats.total > 0) {
         const flag = getFlagEmoji(lang);
-        console.log(`${flag} ${lang}: ${langStats.deleted} deleted, ${langStats.failed} failed (Total: ${langStats.total})`);
+        console.log(`${flag} ${lang}: ${langStats.deleted} deleted, ${langStats.skipped} skipped, ${langStats.failed} failed (Total: ${langStats.total})`);
       }
     }
   } catch (error) {
@@ -288,29 +378,8 @@ async function main(): Promise<void> {
   console.log(chalk.cyan(`🔄 Connecting to: ${importSite.baseUrl}`));
   
   try {
-    const siteName = await getSiteName(importSite.baseUrl);
-    
-    if (shouldConfirm) {
-      console.log(chalk.red.bold(`⚠️ WARNING: This will delete ALL categories from: ${chalk.white.bgRed(` ${siteName} (${importSite.baseUrl}) `)}!`));
-      console.log(chalk.yellow("Run with --confirm flag to skip this confirmation."));
-      
-      // Ask for explicit confirmation
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-      });
-      
-      const answer = await new Promise<string>((resolve) => {
-        rl.question(chalk.red.bold('\nAre you sure you want to delete all categories? (y/n): '), resolve);
-      });
-      rl.close();
-      
-      if (answer.toLowerCase() !== "y") {
-        console.log(chalk.blue("Deletion cancelled."));
-        return;
-      }
-    }
-    
+    // Skip the confirmation prompt entirely since it's already handled in wpp.ts
+    // The --confirm flag is passed from wpp.ts when confirmation is already given
     await deleteAllCategories();
   } catch (error) {
     console.error(chalk.red.bold("✗ Deletion process failed:"), error);
