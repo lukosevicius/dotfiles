@@ -57,7 +57,7 @@ const config: Config = {
     {
       name: "7IN",
       description: "New-7IN",
-      baseUrl: "http://7in.local",
+      baseUrl: "http://localhost:10023",
       username: "mantas",
       password: "qbvD 5eqy VCyc XuxK ghja mM6Y",
       mainLanguage: "lt",
@@ -110,8 +110,8 @@ const config: Config = {
   // Environment settings (default values)
   env: {
     lastExportSite: "Old-7IN",
-    lastImportSite: "7IN"
-  }
+    lastImportSite: "7IN",
+  },
 };
 
 export default config;
