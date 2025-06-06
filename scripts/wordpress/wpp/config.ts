@@ -105,7 +105,7 @@ const config: Config = {
     },
     {
       name: "Old-7IN",
-      baseUrl: "http://7in-old.local/",
+      baseUrl: "http://localhost:10018",
       username: "sandelis",
       password: "hdzH LSwN TKF0 UoYM PVhL tHDh",
       mainLanguage: "lt",

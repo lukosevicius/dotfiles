@@ -17,7 +17,7 @@ interface CategoryData {
   lang?: string;
 }
 
-async function deleteCategory(categoryId: number, lang: string): Promise<boolean> {
+export async function deleteCategory(categoryId: number, lang: string): Promise<boolean> {
   try {
     // Force parameter ensures the category is deleted even if it has children
     const importSite = getImportSite();
@@ -62,7 +62,7 @@ async function fetchAllCategories(): Promise<any[]> {
   return allCategories;
 }
 
-async function deleteAllCategories(): Promise<void> {
+export async function deleteAllCategories(): Promise<void> {
   try {
     // Statistics for deletion
     const stats = {
