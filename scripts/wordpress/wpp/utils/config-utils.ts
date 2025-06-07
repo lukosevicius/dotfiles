@@ -1,7 +1,13 @@
 // Utility functions for working with configuration
 import fs from "fs";
 import path from "path";
-import config, { SiteProfile, EnvSettings } from "../config";
+import config, { SiteProfile } from "../config";
+
+// Define environment settings interface
+export interface EnvSettings {
+  lastExportSite: string;
+  lastImportSite: string;
+}
 
 // Path to environment settings file
 const ENV_FILE_PATH = path.join(__dirname, "..", ".env.json");
@@ -30,9 +36,9 @@ export function loadEnvSettings(): EnvSettings {
 /**
  * Save environment settings to file
  */
-export function saveEnvSettings(): void {
+export function saveEnvSettings(env: EnvSettings): void {
   try {
-    fs.writeFileSync(ENV_FILE_PATH, JSON.stringify(config.env, null, 2));
+    fs.writeFileSync(ENV_FILE_PATH, JSON.stringify(env, null, 2));
   } catch (error) {
     console.warn("Error saving environment settings:", error);
   }
@@ -63,7 +69,8 @@ export function getSiteByIndex(index: number): SiteProfile | undefined {
  * @returns The export site profile
  */
 export function getExportSite(): SiteProfile {
-  const site = getSiteByName(config.env.lastExportSite);
+  const env = loadEnvSettings();
+  const site = getSiteByName(env.lastExportSite);
   if (!site) {
     // Fallback to first site if the saved one doesn't exist
     return config.sites[0];
@@ -76,7 +83,8 @@ export function getExportSite(): SiteProfile {
  * @returns The import site profile
  */
 export function getImportSite(): SiteProfile {
-  const site = getSiteByName(config.env.lastImportSite);
+  const env = loadEnvSettings();
+  const site = getSiteByName(env.lastImportSite);
   if (!site) {
     // Fallback to first site if the saved one doesn't exist
     return config.sites[0];
@@ -101,8 +109,9 @@ export function setExportSite(
   }
 
   if (site) {
-    config.env.lastExportSite = site.name;
-    saveEnvSettings();
+    const env = loadEnvSettings();
+    env.lastExportSite = site.name;
+    saveEnvSettings(env);
     return site;
   }
 
@@ -126,8 +135,9 @@ export function setImportSite(
   }
 
   if (site) {
-    config.env.lastImportSite = site.name;
-    saveEnvSettings();
+    const env = loadEnvSettings();
+    env.lastImportSite = site.name;
+    saveEnvSettings(env);
     return site;
   }
 

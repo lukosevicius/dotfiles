@@ -2,14 +2,9 @@ import fs from "fs";
 import path from "path";
 import chalk from "chalk";
 import { fetchJSON, fetchAllPages, getSiteName } from "../utils/api";
-import config from "../config";
-import {
-  getExportBaseUrl,
-  getExportCredentials,
-  getMainLanguage,
-  getOtherLanguages
-} from "../utils/config-utils";
+import { getExportSite, getExportBaseUrl, getExportCredentials, getMainLanguage, getOtherLanguages } from "../utils/config-utils";
 import { getFlagEmoji } from "../utils/language";
+import { DEFAULT_PATHS } from "../utils/constants";
 
 // Type for the export data structure
 interface ExportData {
@@ -28,16 +23,33 @@ interface ExportData {
 // These functions are now imported from ../shared/utils/api
 
 async function exportCategories(): Promise<void> {
-  // Ensure output directory exists
-  if (!fs.existsSync(config.outputDir)) {
-    fs.mkdirSync(config.outputDir, { recursive: true });
+  // Ensure base output directory exists
+  if (!fs.existsSync(DEFAULT_PATHS.outputDir)) {
+    fs.mkdirSync(DEFAULT_PATHS.outputDir, { recursive: true });
+  }
+  
+  // Get export site URL and create site-specific directory
+  const exportSite = getExportSite();
+  const exportBaseUrl = getExportBaseUrl();
+  // Extract domain from URL (remove protocol and any trailing slashes)
+  const siteDomain = exportBaseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const siteOutputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
+  
+  // Create site-specific directory if it doesn't exist
+  if (!fs.existsSync(siteOutputDir)) {
+    fs.mkdirSync(siteOutputDir, { recursive: true });
   }
 
   // Get site name
-  const exportBaseUrl = getExportBaseUrl();
-  const siteName = await getSiteName(exportBaseUrl);
+  let siteName;
+  try {
+    siteName = await getSiteName(exportBaseUrl);
+  } catch (error: any) {
+    console.log(chalk.yellow(`⚠️ Could not fetch site name: ${error.message || error}`));
+    siteName = exportSite.name || "Unknown Site";
+  }
 
-  console.log(chalk.cyan(`🔄 Exporting from: ${exportBaseUrl} (${chalk.white.bold(siteName)}))`));
+  console.log(chalk.cyan(`🔄 Exporting from: ${exportBaseUrl} (${chalk.white.bold(siteName)})`));
   console.log(chalk.cyan("🔍 Fetching categories from WooCommerce API..."));
 
   // Step 1: Fetch all categories in all languages to get translation information
@@ -145,11 +157,13 @@ async function exportCategories(): Promise<void> {
     data: categoriesByLang,
   };
 
-  const outFile = path.join(config.outputDir, `exported-categories.json`);
+  // Write the export data to a JSON file
+  const outFile = path.join(siteOutputDir, DEFAULT_PATHS.categoriesFile);
   fs.writeFileSync(outFile, JSON.stringify(exportData, null, 2));
-  console.log(
-    chalk.green.bold(`✓ Exported categories to ${outFile} (Total: ${allCategories.length} items)`)
-  );
+  
+  console.log(chalk.green(`\n✓ Categories export completed successfully!`));
+  console.log(chalk.green(`📂 Exported ${Object.values(categoriesByLang).flat().length} categories to: ${outFile}`));
+  console.log(chalk.cyan(`📁 Site-specific folder: ${chalk.white.bold(siteDomain)}`));
 }
 
 async function main(): Promise<void> {

@@ -16,15 +16,28 @@ import {
  * Handles both import and export authentication based on the URL
  */
 export async function fetchJSON(url: string, options: any = {}): Promise<any> {
-  const site = getImportSite();
+  // Determine if this is an export or import request based on the URL
+  const exportBaseUrl = getExportBaseUrl();
+  const importBaseUrl = getImportBaseUrl();
+  
+  // Choose the appropriate credentials based on the URL
+  let credentials;
+  if (url.startsWith(exportBaseUrl)) {
+    credentials = getExportCredentials();
+  } else if (url.startsWith(importBaseUrl)) {
+    credentials = getImportCredentials();
+  } else {
+    // If URL doesn't match either base URL, use import credentials as default
+    credentials = getImportCredentials();
+  }
   
   // Add authentication if not already provided
   if (!options.headers) {
     options.headers = {};
   }
   
-  if (!options.headers.Authorization && site.username && site.password) {
-    const auth = Buffer.from(`${site.username}:${site.password}`).toString('base64');
+  if (!options.headers.Authorization && credentials.username && credentials.password) {
+    const auth = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
     options.headers.Authorization = `Basic ${auth}`;
   }
 

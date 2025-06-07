@@ -4,7 +4,7 @@ import chalk from "chalk";
 import readline from "readline";
 import fetch from "node-fetch";
 import FormData from "form-data";
-import config from "../config";
+import { DEFAULT_PATHS } from "../utils/constants";
 import { getImportSite, getExportSite } from "../utils/config-utils";
 import { fetchJSON, getSiteName } from "../utils/api";
 import { getFlagEmoji } from "../utils/language";
@@ -13,14 +13,41 @@ import { limitImportData } from "../utils/limit-imports";
 
 // Create temp directories for images if they don't exist
 const tempDir = path.join(__dirname, "../temp");
-const tempImagesDir = path.join(config.outputDir, "temp_images");
 
+// Get the export site URL to determine the site-specific directory
+const exportSite = getExportSite();
+const exportBaseUrl = exportSite.baseUrl;
+const siteDomain = exportBaseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+// Create site-specific image directories
+const siteOutputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
+const siteTempImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.tempImagesDir);
+const siteWebpImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.webpImagesDir);
+
+// Legacy image directories (for backward compatibility)
+const tempImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.tempImagesDir);
+const legacyTempImagesDir = tempImagesDir; // Alias for clarity
+const legacyWebpImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.webpImagesDir);
+
+// Create all necessary directories
 if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir, { recursive: true });
 }
 
-if (!fs.existsSync(tempImagesDir)) {
-  fs.mkdirSync(tempImagesDir, { recursive: true });
+if (!fs.existsSync(siteTempImagesDir)) {
+  fs.mkdirSync(siteTempImagesDir, { recursive: true });
+}
+
+if (!fs.existsSync(siteWebpImagesDir)) {
+  fs.mkdirSync(siteWebpImagesDir, { recursive: true });
+}
+
+if (!fs.existsSync(legacyTempImagesDir)) {
+  fs.mkdirSync(legacyTempImagesDir, { recursive: true });
+}
+
+if (!fs.existsSync(legacyWebpImagesDir)) {
+  fs.mkdirSync(legacyWebpImagesDir, { recursive: true });
 }
 
 // Track image ID mappings
@@ -86,22 +113,53 @@ const importStats = {
 const idMap: Record<string, Record<string, number>> = {};
 
 async function importProducts(): Promise<void> {
-  // Load the export data
-  const inputFile = config.inputFile.replace("exported-categories.json", "exported-products.json");
+  // Get the export site URL to determine the site-specific directory
+  const exportSite = getExportSite();
+  const exportBaseUrl = exportSite.baseUrl;
+  const siteDomain = exportBaseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const siteInputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
+  const siteInputFile = path.join(siteInputDir, DEFAULT_PATHS.productsFile);
   
-  if (!fs.existsSync(inputFile)) {
-    console.error(chalk.red(`Error: Product export file not found at ${inputFile}`));
+  // Default input file path
+  const defaultInputFile = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.productsFile);
+
+  // First check if the file exists in the site-specific directory
+  if (fs.existsSync(siteInputFile)) {
+    console.log(chalk.cyan(`📂 Loading product data from site-specific directory: ${siteInputFile}`));
+    var exportData: ExportData = JSON.parse(fs.readFileSync(siteInputFile, "utf-8"));
+  } 
+  // Fall back to the default location if site-specific file doesn't exist
+  else if (fs.existsSync(defaultInputFile)) {
+    console.log(chalk.yellow(`⚠️ Site-specific export not found at ${siteInputFile}`));
+    console.log(chalk.cyan(`📂 Loading product data from default location: ${defaultInputFile}`));
+    var exportData: ExportData = JSON.parse(fs.readFileSync(defaultInputFile, "utf-8"));
+  } 
+  // If neither exists, exit with an error
+  else {
+    console.error(chalk.red(`Error: Product export file not found at ${siteInputFile} or ${defaultInputFile}`));
     console.log(chalk.yellow("Please run the product export first."));
     process.exit(1);
   }
-  
-  console.log(chalk.cyan(`📂 Loading product data from: ${inputFile}`));
-  
-  const exportData: ExportData = JSON.parse(fs.readFileSync(inputFile, "utf-8"));
   const { meta, translations, data } = exportData;
   
   // Get source and target site names
-  const sourceSiteName = exportData.meta.source_site || "Unknown source site";
+  let sourceSiteName = exportData.meta.source_site || "Unknown source site";
+  let sourceDomain = "Unknown domain";
+  
+  // Extract domain from the file path if available
+  if (fs.existsSync(siteInputFile)) {
+    sourceDomain = siteDomain;
+    // If source site name is unknown, use the domain
+    if (sourceSiteName === "Unknown source site") {
+      sourceSiteName = siteDomain;
+    }
+  }
+  
+  // Get export date
+  const exportDate = exportData.meta.exported_at ? 
+    new Date(exportData.meta.exported_at).toLocaleString() : 
+    "Unknown date";
+    
   const importSite = getImportSite();
   const targetSiteName = await getSiteName(importSite.baseUrl);
   
@@ -116,8 +174,10 @@ async function importProducts(): Promise<void> {
   // Show clear import information and ask for confirmation
   console.log(chalk.yellow.bold(`\n⚠️ IMPORT CONFIRMATION`));
   console.log(chalk.yellow(`You are about to import products:`));
-  console.log(chalk.yellow(`- FROM: ${chalk.white(sourceSiteName)} (export file)`));
+  console.log(chalk.yellow(`- FROM: ${chalk.white(sourceSiteName)} (${sourceDomain})`));
+  console.log(chalk.yellow(`- EXPORTED: ${chalk.white(exportDate)}`));
   console.log(chalk.yellow(`- TO:   ${chalk.white.bgBlue(` ${targetSiteName} (${importSite.baseUrl}) `)}`));
+  console.log(chalk.yellow(`- IMPORT DATE: ${chalk.white(new Date().toLocaleString())}`));
   
   // Show image download settings
   if (skipImageDownload) {
@@ -261,7 +321,7 @@ async function importProducts(): Promise<void> {
   }
 }
 
-async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData, mainLanguage?: string): Promise<void> {
+async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData, mainLanguage?: string, skipExisting: boolean = true): Promise<void> {
   // Apply import limit if specified
   const productsToImport = importLimit ? products.slice(0, importLimit) : products;
   
@@ -293,7 +353,7 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
         existingProduct = await findProductBySlug(product.slug, lang);
       }
       
-      if (existingProduct && config.skipExisting) {
+      if (existingProduct && skipExisting) {
         // Skip this product
         console.log(chalk.yellow(`⏩ Skipping existing product: ${product.name} (ID: ${product.id})`));
         
@@ -475,21 +535,28 @@ async function downloadImage(imageUrl: string, fileName: string): Promise<string
       return "";
     }
     
-    // First check if the image already exists in temp_images directory
-    const tempImagesPath = path.join(tempImagesDir, fileName);
-    if (fs.existsSync(tempImagesPath)) {
-      console.log(`  Image already exists in temp_images: ${fileName}`);
-      return tempImagesPath;
+    // First check if the image exists in site-specific temp_images directory
+    const siteTempImagesPath = path.join(siteTempImagesDir, fileName);
+    if (fs.existsSync(siteTempImagesPath)) {
+      console.log(`  Image already exists in site-specific directory: ${fileName}`);
+      return siteTempImagesPath;
     }
     
-    // If not in temp_images and not using --download-images, skip download unless forced
-    if (!downloadImages && !fs.existsSync(tempImagesPath)) {
+    // Then check if the image exists in legacy temp_images directory
+    const legacyTempImagesPath = path.join(legacyTempImagesDir, fileName);
+    if (fs.existsSync(legacyTempImagesPath)) {
+      console.log(`  Image found in legacy directory: ${fileName}`);
+      return legacyTempImagesPath;
+    }
+    
+    // If not found in either directory and not using --download-images, skip download unless forced
+    if (!downloadImages) {
       // Only download if explicitly requested or if no local copy exists
       console.log(`  Image not found locally, downloading: ${fileName}`);
     }
     
-    // Create a file path in the temp directory
-    const filePath = path.join(tempDir, fileName);
+    // Create a file path in the site-specific temp_images directory
+    const filePath = path.join(siteTempImagesDir, fileName);
     
     // Try to download the image
     const response = await fetch(imageUrl, { timeout: 30000 });
@@ -501,8 +568,9 @@ async function downloadImage(imageUrl: string, fileName: string): Promise<string
     // Get the image data
     const imageBuffer = await response.buffer();
     
-    // Save the image to disk
+    // Save the image to the site-specific directory
     fs.writeFileSync(filePath, imageBuffer);
+    console.log(`  Image downloaded successfully to site-specific directory: ${fileName}`);
     
     return filePath;
   } catch (error) {
@@ -707,27 +775,46 @@ async function processImage(image: any, productSlug?: string): Promise<number | 
     const fileExtension = path.extname(imageName).toLowerCase();
     const nameWithoutExt = productSlug || path.basename(imageName, fileExtension);
     
-    // Check for WebP version first
-    const webpImagesDir = path.join(config.outputDir, "webp_images");
-    const webpImagePath = path.join(webpImagesDir, `${nameWithoutExt}.webp`);
+    // Check for WebP version in site-specific directory first
+    const siteWebpImagePath = path.join(siteWebpImagesDir, `${nameWithoutExt}.webp`);
     
-    // Check for regular version
+    // Check for WebP version in legacy directory as fallback
+    const legacyWebpImagePath = path.join(legacyWebpImagesDir, `${nameWithoutExt}.webp`);
+    
+    // Define the regular image name
     const regularImageName = productSlug ? `${productSlug}${fileExtension}` : imageName;
-    const regularImagePath = path.join(tempImagesDir, regularImageName);
+    
+    // Check for regular version in site-specific directory first
+    const siteRegularImagePath = path.join(siteTempImagesDir, regularImageName);
+    
+    // Check for regular version in legacy directory as fallback
+    const legacyRegularImagePath = path.join(legacyTempImagesDir, regularImageName);
     
     let imageToUpload: string | null = null;
     let finalImageName = "";
     
-    // First priority: Use WebP if available
-    if (fs.existsSync(webpImagePath)) {
-      console.log(`  Using WebP image: ${nameWithoutExt}.webp`);
-      imageToUpload = webpImagePath;
-      finalImageName = `${nameWithoutExt}.webp`;
+    // First priority: Use WebP in site-specific directory if available
+    if (fs.existsSync(siteWebpImagePath)) {
+      console.log(`  Using site-specific WebP image: ${path.basename(siteWebpImagePath)}`);
+      imageToUpload = siteWebpImagePath;
+      finalImageName = path.basename(siteWebpImagePath);
     }
-    // Second priority: Use regular image if available
-    else if (fs.existsSync(regularImagePath)) {
-      console.log(`  Using existing image: ${regularImageName}`);
-      imageToUpload = regularImagePath;
+    // Second priority: Use WebP in legacy directory if available
+    else if (fs.existsSync(legacyWebpImagePath)) {
+      console.log(`  Using legacy WebP image: ${path.basename(legacyWebpImagePath)}`);
+      imageToUpload = legacyWebpImagePath;
+      finalImageName = path.basename(legacyWebpImagePath);
+    }
+    // Third priority: Use regular image in site-specific directory if available
+    else if (fs.existsSync(siteRegularImagePath)) {
+      console.log(`  Using site-specific regular image: ${regularImageName}`);
+      imageToUpload = siteRegularImagePath;
+      finalImageName = regularImageName;
+    }
+    // Fourth priority: Use regular image in legacy directory if available
+    else if (fs.existsSync(legacyRegularImagePath)) {
+      console.log(`  Using legacy regular image: ${regularImageName}`);
+      imageToUpload = legacyRegularImagePath;
       finalImageName = regularImageName;
     }
     // Third priority: Download if allowed

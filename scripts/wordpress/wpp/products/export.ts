@@ -1,13 +1,10 @@
 import fs from "fs";
 import path from "path";
+import chalk from "chalk";
 import { fetchJSON, fetchAllPages, getSiteName } from "../utils/api";
-import config from "../config";
-import {
-  getExportBaseUrl,
-  getMainLanguage,
-  getOtherLanguages
-} from "../utils/config-utils";
+import { DEFAULT_PATHS } from "../utils/constants";
 import { getFlagEmoji } from "../utils/language";
+import { getExportSite, getExportBaseUrl, getMainLanguage, getOtherLanguages } from "../utils/config-utils";
 
 // Type for the export data structure
 interface ExportData {
@@ -24,17 +21,34 @@ interface ExportData {
 }
 
 async function exportProducts(): Promise<void> {
-  // Ensure output directory exists
-  if (!fs.existsSync(config.outputDir)) {
-    fs.mkdirSync(config.outputDir, { recursive: true });
+  // Ensure base output directory exists
+  if (!fs.existsSync(DEFAULT_PATHS.outputDir)) {
+    fs.mkdirSync(DEFAULT_PATHS.outputDir, { recursive: true });
+  }
+  
+  // Get export site URL and create site-specific directory
+  const exportSite = getExportSite();
+  const exportBaseUrl = exportSite.baseUrl;
+  // Extract domain from URL (remove protocol and any trailing slashes)
+  const siteDomain = exportBaseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const siteOutputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
+  
+  // Create site-specific directory if it doesn't exist
+  if (!fs.existsSync(siteOutputDir)) {
+    fs.mkdirSync(siteOutputDir, { recursive: true });
   }
 
   // Get site name
-  const exportBaseUrl = getExportBaseUrl();
-  const sourceSiteName = await getSiteName(exportBaseUrl);
+  let sourceSiteName;
+  try {
+    sourceSiteName = await getSiteName(exportBaseUrl);
+  } catch (error: any) {
+    console.log(chalk.yellow(`⚠️ Could not fetch site name: ${error.message || error}`));
+    sourceSiteName = exportSite.name || "Unknown Site";
+  }
 
-  console.log(`🔄 Exporting products from: ${exportBaseUrl} (${sourceSiteName})`);
-  console.log("🔍 Fetching products from WooCommerce API...");
+  console.log(chalk.cyan(`🔄 Exporting products from: ${exportBaseUrl} (${chalk.white.bold(sourceSiteName)})`));
+  console.log(chalk.cyan("🔍 Fetching products from WooCommerce API..."));
 
   // Step 1: Fetch all products in all languages to get translation information
   const allProducts = await fetchAllPages(
@@ -141,11 +155,13 @@ async function exportProducts(): Promise<void> {
     data: productsByLang,
   };
 
-  const outFile = path.join(config.outputDir, `exported-products.json`);
+  // Write the export data to a JSON file
+  const outFile = path.join(siteOutputDir, DEFAULT_PATHS.productsFile);
   fs.writeFileSync(outFile, JSON.stringify(exportData, null, 2));
   console.log(
-    `✅ Exported products to ${outFile} (Total: ${allProducts.length} items)`
+    chalk.green.bold(`✓ Exported products to ${outFile} (Total: ${allProducts.length} items)`)
   );
+  console.log(chalk.cyan(`📁 Site-specific folder: ${chalk.white.bold(siteDomain)}`));
 }
 
 async function main(): Promise<void> {

@@ -1,6 +1,6 @@
 // Shared configuration for WordPress category export/import tools
 // TIP: Move sensitive data to .env in production
-import path from 'path';
+import path from "path";
 
 /**
  * Site profile interface - represents a single WordPress site
@@ -20,36 +20,23 @@ export interface SiteProfile {
   otherLanguages: string[];
 }
 
-/**
- * Environment settings interface - stores last used export/import sites
- */
-export interface EnvSettings {
-  lastExportSite: string;
-  lastImportSite: string;
-}
+// Environment settings are now defined in utils/config-utils.ts
 
 /**
  * Main configuration interface
  */
 export interface Config {
   // Global settings
-  outputDir: string;
-  inputFile: string;
   perPage: number;
   skipExisting: boolean;
 
   // Site profiles
   sites: SiteProfile[];
-
-  // Environment settings
-  env: EnvSettings;
 }
 
 // Main configuration
 const config: Config = {
   // Global settings
-  outputDir: path.join(__dirname, "export"),
-  inputFile: path.join(__dirname, "export/exported-categories.json"),
   perPage: 100, // Number of items per page (max 100 for WooCommerce API)
   skipExisting: true, // Skip categories that already exist
 
@@ -66,7 +53,7 @@ const config: Config = {
     {
       name: "7IN",
       description: "New-7IN",
-      baseUrl: "http://localhost:10023",
+      baseUrl: "http://7in.local",
       username: "mantas",
       password: "qbvD 5eqy VCyc XuxK ghja mM6Y",
       mainLanguage: "lt",
@@ -90,7 +77,7 @@ const config: Config = {
     },
     {
       name: "Old-7IN",
-      baseUrl: "http://localhost:10018",
+      baseUrl: "http://7in-old.local/",
       username: "sandelis",
       password: "hdzH LSwN TKF0 UoYM PVhL tHDh",
       mainLanguage: "lt",
@@ -110,17 +97,11 @@ const config: Config = {
       description: "Production environment",
       baseUrl: "https://7ievosnamai.lt/",
       username: "sandelis",
-      password: "LeMG ASCN ksTJ jGgs L4Bj 4fiv",
+      password: "zc7z 14O8 fhbC CCUR 1zyF MXA6",
       mainLanguage: "lt",
       otherLanguages: ["en", "lv", "ru", "de"],
     },
   ],
-
-  // Environment settings (default values)
-  env: {
-    lastExportSite: "Old-7IN",
-    lastImportSite: "new",
-  },
 };
 
 export default config;
