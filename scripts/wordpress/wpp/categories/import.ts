@@ -551,7 +551,8 @@ async function importCategoriesForLanguage(
   categories: any[],
   lang: string,
   idMap: Record<string, Record<number, number>>,
-  stats: ImportStats
+  stats: ImportStats,
+  mainLanguage: string
 ): Promise<void> {
   console.log(`\n🌎 Importing ${categories.length} categories in ${lang === "main" ? "main language" : `language: ${lang}`} ${getFlagEmoji(lang)} `);
 
@@ -600,6 +601,30 @@ async function importCategoriesForLanguage(
       // Store the mapping
       if (!idMap[lang]) idMap[lang] = {};
       idMap[lang][category.id] = existingId;
+      
+      // If this is a non-main language category and we have a main language ID,
+      // update it to set the translation_of parameter
+      if (lang !== mainLanguage && idMap[mainLanguage] && idMap[mainLanguage][category.id]) {
+        const mainLangId = idMap[mainLanguage][category.id];
+        try {
+          // Update the existing category to set translation_of
+          await fetchJSON(
+            `${getImportSite().baseUrl}/wp-json/wc/v3/products/categories/${existingId}?lang=${lang}`,
+            {
+              method: "PUT",
+              body: JSON.stringify({
+                translation_of: mainLangId
+              }),
+              headers: {
+                "Content-Type": "application/json",
+              },
+            }
+          );
+          console.log(`  UPDATED translation relationship for existing category (ID: ${existingId})`);
+        } catch (error) {
+          console.log(chalk.yellow(`  Warning: Could not update translation relationship for existing category: ${error instanceof Error ? error.message : String(error)}`));
+        }
+      }
       continue;
     }
 
@@ -611,6 +636,9 @@ async function importCategoriesForLanguage(
         newImageId = await processImage(category.image, stats, slug);
       }
 
+      // Check if this is a translation and get the main language category ID
+      const mainLangId = lang !== mainLanguage && idMap[mainLanguage] && idMap[mainLanguage][category.id];
+      
       // Create category
       const response = await fetchJSON(
         `${getImportSite().baseUrl}/wp-json/wc/v3/products/categories?lang=${lang}`,
@@ -622,6 +650,8 @@ async function importCategoriesForLanguage(
             parent: 0, // We'll update parent relationships later
             description: category.description || "",
             image: newImageId ? { id: newImageId } : null,
+            // Set translation_of parameter if this is a translation
+            ...(mainLangId ? { translation_of: mainLangId } : {}),
           }),
           headers: {
             "Content-Type": "application/json",
@@ -772,7 +802,7 @@ async function importCategories(): Promise<void> {
       console.log(
         chalk.cyan(`\n🌎 Importing ${filteredData[mainLanguage].length} categories in main language: ${mainLanguage} ${getFlagEmoji(mainLanguage)}`)
       );
-      await importCategoriesForLanguage(filteredData[mainLanguage], mainLanguage, idMap, stats);
+      await importCategoriesForLanguage(filteredData[mainLanguage], mainLanguage, idMap, stats, mainLanguage);
     }
 
     // Then import other languages
@@ -781,7 +811,7 @@ async function importCategories(): Promise<void> {
         console.log(
           chalk.cyan(`\n🌎 Importing ${filteredData[lang].length} categories in language: ${lang} ${getFlagEmoji(lang)}`)
         );
-        await importCategoriesForLanguage(filteredData[lang], lang, idMap, stats);
+        await importCategoriesForLanguage(filteredData[lang], lang, idMap, stats, mainLanguage);
       }
     }
 

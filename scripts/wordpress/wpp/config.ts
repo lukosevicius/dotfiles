@@ -55,6 +55,14 @@ const config: Config = {
   // Site profiles
   sites: [
     {
+      name: "new",
+      baseUrl: "http://wpml-woo-mnt-blocksy.local",
+      username: "mantas",
+      password: "3AMD VxIA FKiY p9Su LVpr 4hUo",
+      mainLanguage: "lt",
+      otherLanguages: ["en", "lv", "ru", "de"],
+    },
+    {
       name: "7IN",
       description: "New-7IN",
       baseUrl: "http://localhost:10023",

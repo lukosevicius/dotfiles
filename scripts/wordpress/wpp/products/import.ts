@@ -165,14 +165,14 @@ async function importProducts(): Promise<void> {
   const mainLang = meta.main_language;
   if (filteredData[mainLang] && filteredData[mainLang].length > 0) {
     console.log(chalk.cyan(`\n🌎 Importing ${filteredData[mainLang].length} products in main language: ${mainLang} ${getFlagEmoji(mainLang)}`));
-    await importProductsForLanguage(filteredData[mainLang], mainLang, exportData);
+    await importProductsForLanguage(filteredData[mainLang], mainLang, exportData, mainLang);
   }
   
   // Then import other languages
   for (const lang of meta.other_languages) {
     if (filteredData[lang] && filteredData[lang].length > 0) {
       console.log(chalk.cyan(`\n🌎 Importing ${filteredData[lang].length} products in language: ${lang} ${getFlagEmoji(lang)}`));
-      await importProductsForLanguage(filteredData[lang], lang, exportData);
+      await importProductsForLanguage(filteredData[lang], lang, exportData, mainLang);
     }
   }
   
@@ -261,7 +261,7 @@ async function importProducts(): Promise<void> {
   }
 }
 
-async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData): Promise<void> {
+async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData, mainLanguage?: string): Promise<void> {
   // Apply import limit if specified
   const productsToImport = importLimit ? products.slice(0, importLimit) : products;
   
@@ -301,6 +301,32 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
         if (!idMap[lang]) idMap[lang] = {};
         idMap[lang][product.id] = existingProduct.id;
         
+        // If this is a non-main language product and we have a main language ID,
+        // update it to set the translation_of parameter
+        if (mainLanguage && lang !== mainLanguage && product.translations && product.translations[mainLanguage]) {
+          const mainLangId = product.translations[mainLanguage];
+          if (mainLangId && idMap[mainLanguage] && idMap[mainLanguage][mainLangId]) {
+            try {
+              // Update the existing product to set translation_of
+              await fetchJSON(
+                `${getImportSite().baseUrl}/wp-json/wc/v3/products/${existingProduct.id}?lang=${lang}`,
+                {
+                  method: "PUT",
+                  body: JSON.stringify({
+                    translation_of: idMap[mainLanguage][mainLangId]
+                  }),
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+              console.log(`  UPDATED translation relationship for existing product (ID: ${existingProduct.id})`);
+            } catch (error) {
+              console.log(chalk.yellow(`  Warning: Could not update translation relationship for existing product: ${error instanceof Error ? error.message : String(error)}`));
+            }
+          }
+        }
+        
         importStats.skipped++;
         importStats.byLanguage[lang].skipped++;
         continue;
@@ -325,6 +351,14 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
       
       // Prepare product data for import
       const productData = await prepareProductData(product, lang, mainLanguageSlug);
+      
+      // If this is a translation and we have the main language ID mapping, set translation_of
+      if (mainLanguage && lang !== mainLanguage && product.translations && product.translations[mainLanguage]) {
+        const mainLangId = product.translations[mainLanguage];
+        if (mainLangId && idMap[mainLanguage] && idMap[mainLanguage][mainLangId]) {
+          productData.translation_of = idMap[mainLanguage][mainLangId];
+        }
+      }
       
       // Create or update the product
       const importedProduct = await createProduct(productData, lang);
