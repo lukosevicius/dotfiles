@@ -659,11 +659,6 @@ async function importCategoriesForLanguage(
         ...(mainLangId ? { translation_of: mainLangId } : {}),
       };
       
-      // Debug logs
-      console.log(chalk.blue('\n🔍 DEBUG: API Request Details'));
-      console.log(chalk.blue(`URL: ${requestUrl}`));
-      console.log(chalk.blue(`Body: ${JSON.stringify(requestBody, null, 2)}`));
-      console.log(chalk.blue(`Has translation_of: ${mainLangId ? 'YES - ' + mainLangId : 'NO'}`));
       
       const response = await fetchJSON(
         requestUrl,
@@ -676,8 +671,6 @@ async function importCategoriesForLanguage(
         }
       );
       
-      // Debug log the response
-      console.log(chalk.blue(`Response: ${JSON.stringify(response, null, 2)}`));
 
       if (!response || !response.id) {
         throw new Error(`Failed to create category: ${JSON.stringify(response)}`);
