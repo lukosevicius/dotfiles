@@ -623,30 +623,23 @@ async function importCategoriesForLanguage(
       // For translations, we need to find the corresponding main language category's new ID
       let mainLangId = null;
       if (lang !== mainLanguage) {
-        // First try to find the translation relationship from the original category ID
-        if (idMap[mainLanguage] && idMap[mainLanguage][category.id]) {
-          mainLangId = idMap[mainLanguage][category.id];
-          console.log(chalk.green(`Found translation relationship by ID: ${category.name} (${lang}) -> new ID ${mainLangId}`));
+        // Find the original ID of the main language category that this is a translation of
+        let mainLangOriginalId = null;
+        
+        // First check if the category has explicit translations in its data
+        if (category.translations && category.translations[mainLanguage]) {
+          mainLangOriginalId = category.translations[mainLanguage];
         }
-        // If not found by ID, try to find by slug
-        else if (category.translations && category.translations[mainLanguage]) {
-          // If the category has explicit translations in its data
-          const mainLangOriginalId = category.translations[mainLanguage];
-          if (idMap[mainLanguage] && idMap[mainLanguage][mainLangOriginalId]) {
-            mainLangId = idMap[mainLanguage][mainLangOriginalId];
-            console.log(chalk.green(`Found translation relationship by explicit translation: ${category.name} (${lang}) -> original ID ${mainLangOriginalId} -> new ID ${mainLangId}`));
-          }
-        }
-        // Try to find by slug in the translations object
+        // Then try to find by slug in the translations object
         else if (translations.wpml[slug] && translations.wpml[slug][mainLanguage]) {
-          const mainLangOriginalId = translations.wpml[slug][mainLanguage];
-          if (idMap[mainLanguage] && idMap[mainLanguage][mainLangOriginalId]) {
-            mainLangId = idMap[mainLanguage][mainLangOriginalId];
-            console.log(chalk.green(`Found translation relationship by slug: ${slug} (${lang}) -> original ID ${mainLangOriginalId} -> new ID ${mainLangId}`));
-          }
+          mainLangOriginalId = translations.wpml[slug][mainLanguage];
         }
         
-        if (!mainLangId) {
+        // If we found an original ID, look up its new ID in our mapping
+        if (mainLangOriginalId && idMap[mainLanguage] && idMap[mainLanguage][mainLangOriginalId]) {
+          mainLangId = idMap[mainLanguage][mainLangOriginalId];
+          console.log(chalk.green(`Found translation relationship: ${category.name} (${lang}) -> main language ID ${mainLangId}`));
+        } else {
           console.log(chalk.yellow(`Could not find main language category for ${category.name} (${lang})`));
         }
       }

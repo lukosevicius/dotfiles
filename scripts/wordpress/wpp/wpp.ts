@@ -426,6 +426,7 @@ async function showOperationsMenu(): Promise<void> {
     { id: "download-images", name: `Download images`, description: `Download all images without importing` },
     { id: "convert-to-webp", name: `Convert images to WebP`, description: `Convert downloaded images to WebP format` },
     { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to ${chalk.blue(importSite.name)}` },
+    { id: "delete-import", name: `Delete & Import ${selectedContentType}`, description: `Delete all ${selectedContentType} and then import from export file` },
     { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from ${getImportSite().name}` },
     { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
     { id: "complete", name: "Complete workflow", description: "Run the complete export-test-import workflow" },
@@ -550,6 +551,103 @@ async function showOperationsMenu(): Promise<void> {
     return await showOperationsMenu();
   }
   
+  // Handle delete and import operation
+  if (selectedOperation.id === "delete-import") {
+    const deleteScript = selectedContentType === "categories" ? categoryDeleteScript : productDeleteScript;
+    const importScript = selectedContentType === "categories" ? categoryImportScript : productImportScript;
+    const contentTypeName = selectedContentType === "categories" ? "Categories" : "Products";
+    
+    // Check if scripts exist
+    if (!fs.existsSync(deleteScript)) {
+      console.error(chalk.red(`Delete script for ${selectedContentType} not found at: ${deleteScript}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(deleteScript)} script first.`));
+      process.exit(1);
+    }
+    
+    if (!fs.existsSync(importScript)) {
+      console.error(chalk.red(`Import script for ${selectedContentType} not found at: ${importScript}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(importScript)} script first.`));
+      process.exit(1);
+    }
+    
+    // Confirm the operation
+    displayHeader(`Delete & Import ${contentTypeName}`);
+    const rlConfirm = createPrompt();
+    const confirmAnswer = await new Promise<string>((resolve) => {
+      rlConfirm.question(
+        chalk.yellow(`⚠️ WARNING: This will DELETE ALL ${selectedContentType.toUpperCase()} from ${getImportSite().name} and then import from the export file.\n`) +
+        chalk.red(`This operation cannot be undone! Are you sure? (yes/no): `),
+        resolve
+      );
+    });
+    rlConfirm.close();
+    
+    if (confirmAnswer.toLowerCase() !== "yes") {
+      console.log(chalk.blue("Operation cancelled."));
+      return await showOperationsMenu();
+    }
+    
+    // First run delete
+    console.log(chalk.cyan(`\n🗑️ Step 1: Deleting all ${selectedContentType}...`));
+    
+    try {
+      // Run the delete script with the --confirm flag to skip confirmation
+      await runScript(deleteScript, ["--confirm"]);
+      console.log(chalk.green(`✓ Delete completed successfully!`));
+    } catch (error) {
+      console.error(chalk.red(`Error during delete operation:`), error);
+      console.log(chalk.yellow(`Import will not proceed due to delete failure.`));
+      
+      // Return to the operations menu after completion
+      console.log(chalk.blue("\nPress Enter to return to the menu..."));
+      const rlContinue = createPrompt();
+      await new Promise<void>((resolve) => {
+        rlContinue.question("", () => resolve());
+      });
+      rlContinue.close();
+      
+      return await showOperationsMenu();
+    }
+    
+    // Then run import
+    console.log(chalk.cyan(`\n📥 Step 2: Importing ${selectedContentType}...`));
+    
+    // Ask how many items to import
+    const rlLimit = createPrompt();
+    const limitAnswer = await new Promise<string>((resolve) => {
+      rlLimit.question(chalk.cyan(`\nHow many ${selectedContentType} to import? (Enter a number or 'all', default: all): `), resolve);
+    });
+    rlLimit.close();
+    
+    let limitFlag: string[] = [];
+    if (limitAnswer && limitAnswer.toLowerCase() !== 'all' && !isNaN(parseInt(limitAnswer))) {
+      const limit = parseInt(limitAnswer);
+      if (limit > 0) {
+        limitFlag = ["--limit", limit.toString()];
+      }
+    }
+    
+    try {
+      // Run the import script
+      await runScript(importScript, [...limitFlag]);
+      console.log(chalk.green(`✓ Import completed successfully!`));
+      console.log(chalk.green.bold(`\n✅ Delete & Import operation completed successfully!`));
+    } catch (error) {
+      console.error(chalk.red(`Error during import operation:`), error);
+      console.log(chalk.yellow(`The operation was partially completed. ${contentTypeName} were deleted but import failed.`));
+    }
+    
+    // Return to the operations menu after completion
+    console.log(chalk.blue("\nPress Enter to return to the menu..."));
+    const rlContinue = createPrompt();
+    await new Promise<void>((resolve) => {
+      rlContinue.question("", () => resolve());
+    });
+    rlContinue.close();
+    
+    return await showOperationsMenu();
+  }
+  
   // Handle import with limit option
   if (selectedOperation.id === "import") {
     const scriptPath = selectedContentType === "categories" ? categoryImportScript : productImportScript;
@@ -604,7 +702,6 @@ async function showOperationsMenu(): Promise<void> {
     });
     rlContinue.close();
     
-    return await showOperationsMenu();
   }
 }
 
