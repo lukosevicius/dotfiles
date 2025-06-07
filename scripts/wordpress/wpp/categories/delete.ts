@@ -27,8 +27,12 @@ async function deleteImageIfMatchingSlug(imageId: number, categorySlug: string, 
       const fileExt = path.extname(filename);
       const filenameWithoutExt = path.basename(filename, fileExt);
       
-      // Check if the filename (without extension) matches the category slug
-      if (filenameWithoutExt === categorySlug) {
+      // Sanitize the category slug in the same way as during upload
+      const sanitizedSlug = categorySlug.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+      
+      // Check if the filename (without extension) matches the sanitized category slug
+      // or starts with the sanitized slug (for backward compatibility with ID-based names)
+      if (filenameWithoutExt === sanitizedSlug || filenameWithoutExt.startsWith(`${sanitizedSlug}-`)) {
         console.log(chalk.blue(`Found matching image: ${filename} for category: ${categorySlug}`));
         
         // First, check for and delete any related thumbnail images
