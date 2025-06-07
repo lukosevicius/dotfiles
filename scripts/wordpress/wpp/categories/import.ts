@@ -557,7 +557,19 @@ async function importCategoriesForLanguage(
     wpml: Record<string, Record<string, number>>
   }
 ): Promise<void> {
-  console.log(`\n🌎 Importing ${categories.length} categories in ${lang === "main" ? "main language" : `language: ${lang}`} ${getFlagEmoji(lang)} `);
+  // Sort categories so that parents come before children
+  // This ensures parent categories are created first and their IDs are available
+  const sortedCategories = [...categories].sort((a, b) => {
+    // Categories with no parent (top-level) come first
+    if (!a.parent && b.parent) return -1;
+    if (a.parent && !b.parent) return 1;
+    // If both have parents, sort by parent ID (lower parent IDs first)
+    if (a.parent && b.parent) return a.parent - b.parent;
+    return 0;
+  });
+  
+  console.log(chalk.blue(`Sorted categories by parent hierarchy for ${lang} - processing parents first`));
+  // Language import message is now handled by the parent function
 
   // Initialize language stats if not already present
   if (!stats.byLanguage[lang]) {
@@ -570,10 +582,10 @@ async function importCategoriesForLanguage(
   }
 
   // Apply import limit if specified
-  const categoriesToImport = importLimit ? categories.slice(0, importLimit) : categories;
+  const categoriesToImport = importLimit ? sortedCategories.slice(0, importLimit) : sortedCategories;
   
   if (importLimit) {
-    console.log(chalk.yellow(`Limiting import to ${importLimit} categories (out of ${categories.length} total)`));
+    console.log(chalk.yellow(`Limiting import to ${importLimit} categories (out of ${sortedCategories.length} total)`));
   }
   
   for (const category of categoriesToImport) {
@@ -649,10 +661,26 @@ async function importCategoriesForLanguage(
       
       // Create the request URL and body
       const requestUrl = `${getImportSite().baseUrl}/wp-json/wc/v3/products/categories?lang=${lang}`;
+      // Check if this category has a parent and if that parent has already been imported
+      let parentId = 0;
+      if (category.parent && category.parent > 0) {
+        // Try to find the parent's new ID in our mapping
+        if (idMap[lang] && idMap[lang][category.parent]) {
+          parentId = idMap[lang][category.parent];
+          console.log(chalk.blue(`Setting parent ID for ${category.name}: ${parentId}`));
+        } else {
+          // Parent category not found, will set as top-level
+          // No message needed
+        }
+      } else {
+        // This is intentionally a top-level category
+        // No need to log anything for top-level categories
+      }
+      
       const requestBody = {
         name: category.name,
         slug: slug, // Use the potentially decoded slug
-        parent: 0, // We'll update parent relationships later
+        parent: parentId, // Set the parent ID if we found it
         description: category.description || "",
         image: newImageId ? { id: newImageId } : null,
         // Set translation_of parameter if this is a translation
@@ -683,10 +711,12 @@ async function importCategoriesForLanguage(
       // Store the mapping
       if (!idMap[lang]) idMap[lang] = {};
       idMap[lang][category.id] = response.id;
+      console.log(); // Add a new line after each category import
     } catch (error) {
       console.error(`  FAILED: ${error instanceof Error ? error.message : String(error)}`);
       stats.categories.failed++;
       stats.byLanguage[lang].failed++;
+      console.log(); // Add a new line even after failed imports
     }
   }
 }

@@ -1,5 +1,6 @@
 // Shared configuration for WordPress category export/import tools
 // TIP: Move sensitive data to .env in production
+import path from 'path';
 
 /**
  * Site profile interface - represents a single WordPress site
@@ -47,8 +48,8 @@ export interface Config {
 // Main configuration
 const config: Config = {
   // Global settings
-  outputDir: "/Users/mantas/files/export",
-  inputFile: "/Users/mantas/files/export/exported-categories.json",
+  outputDir: path.join(__dirname, "export"),
+  inputFile: path.join(__dirname, "export/exported-categories.json"),
   perPage: 100, // Number of items per page (max 100 for WooCommerce API)
   skipExisting: true, // Skip categories that already exist
 
