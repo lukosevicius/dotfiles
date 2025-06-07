@@ -550,9 +550,12 @@ async function createTranslationRelationship(
 async function importCategoriesForLanguage(
   categories: any[],
   lang: string,
-  idMap: Record<string, Record<number, number>>,
+  idMap: Record<string, Record<string, number>>,
   stats: ImportStats,
-  mainLanguage: string
+  mainLanguage: string,
+  translations: {
+    wpml: Record<string, Record<string, number>>
+  }
 ): Promise<void> {
   console.log(`\n🌎 Importing ${categories.length} categories in ${lang === "main" ? "main language" : `language: ${lang}`} ${getFlagEmoji(lang)} `);
 
@@ -602,29 +605,9 @@ async function importCategoriesForLanguage(
       if (!idMap[lang]) idMap[lang] = {};
       idMap[lang][category.id] = existingId;
       
-      // If this is a non-main language category and we have a main language ID,
-      // update it to set the translation_of parameter
-      if (lang !== mainLanguage && idMap[mainLanguage] && idMap[mainLanguage][category.id]) {
-        const mainLangId = idMap[mainLanguage][category.id];
-        try {
-          // Update the existing category to set translation_of
-          await fetchJSON(
-            `${getImportSite().baseUrl}/wp-json/wc/v3/products/categories/${existingId}?lang=${lang}`,
-            {
-              method: "PUT",
-              body: JSON.stringify({
-                translation_of: mainLangId
-              }),
-              headers: {
-                "Content-Type": "application/json",
-              },
-            }
-          );
-          console.log(`  UPDATED translation relationship for existing category (ID: ${existingId})`);
-        } catch (error) {
-          console.log(chalk.yellow(`  Warning: Could not update translation relationship for existing category: ${error instanceof Error ? error.message : String(error)}`));
-        }
-      }
+      // For existing categories, we don't need to update the translation_of parameter
+      // WPML should handle this through its own database tables, and trying to update
+      // an existing category's translation relationship may cause issues
       continue;
     }
 
@@ -637,27 +620,71 @@ async function importCategoriesForLanguage(
       }
 
       // Check if this is a translation and get the main language category ID
-      const mainLangId = lang !== mainLanguage && idMap[mainLanguage] && idMap[mainLanguage][category.id];
+      // For translations, we need to find the corresponding main language category's new ID
+      let mainLangId = null;
+      if (lang !== mainLanguage) {
+        // First try to find the translation relationship from the original category ID
+        if (idMap[mainLanguage] && idMap[mainLanguage][category.id]) {
+          mainLangId = idMap[mainLanguage][category.id];
+          console.log(chalk.green(`Found translation relationship by ID: ${category.name} (${lang}) -> new ID ${mainLangId}`));
+        }
+        // If not found by ID, try to find by slug
+        else if (category.translations && category.translations[mainLanguage]) {
+          // If the category has explicit translations in its data
+          const mainLangOriginalId = category.translations[mainLanguage];
+          if (idMap[mainLanguage] && idMap[mainLanguage][mainLangOriginalId]) {
+            mainLangId = idMap[mainLanguage][mainLangOriginalId];
+            console.log(chalk.green(`Found translation relationship by explicit translation: ${category.name} (${lang}) -> original ID ${mainLangOriginalId} -> new ID ${mainLangId}`));
+          }
+        }
+        // Try to find by slug in the translations object
+        else if (translations.wpml[slug] && translations.wpml[slug][mainLanguage]) {
+          const mainLangOriginalId = translations.wpml[slug][mainLanguage];
+          if (idMap[mainLanguage] && idMap[mainLanguage][mainLangOriginalId]) {
+            mainLangId = idMap[mainLanguage][mainLangOriginalId];
+            console.log(chalk.green(`Found translation relationship by slug: ${slug} (${lang}) -> original ID ${mainLangOriginalId} -> new ID ${mainLangId}`));
+          }
+        }
+        
+        if (!mainLangId) {
+          console.log(chalk.yellow(`Could not find main language category for ${category.name} (${lang})`));
+        }
+      }
       
-      // Create category
+      // Create category with translation_of parameter if applicable
+      // This is the correct way to establish translation relationships in WPML
+      
+      // Create the request URL and body
+      const requestUrl = `${getImportSite().baseUrl}/wp-json/wc/v3/products/categories?lang=${lang}`;
+      const requestBody = {
+        name: category.name,
+        slug: slug, // Use the potentially decoded slug
+        parent: 0, // We'll update parent relationships later
+        description: category.description || "",
+        image: newImageId ? { id: newImageId } : null,
+        // Set translation_of parameter if this is a translation
+        ...(mainLangId ? { translation_of: mainLangId } : {}),
+      };
+      
+      // Debug logs
+      console.log(chalk.blue('\n🔍 DEBUG: API Request Details'));
+      console.log(chalk.blue(`URL: ${requestUrl}`));
+      console.log(chalk.blue(`Body: ${JSON.stringify(requestBody, null, 2)}`));
+      console.log(chalk.blue(`Has translation_of: ${mainLangId ? 'YES - ' + mainLangId : 'NO'}`));
+      
       const response = await fetchJSON(
-        `${getImportSite().baseUrl}/wp-json/wc/v3/products/categories?lang=${lang}`,
+        requestUrl,
         {
           method: "POST",
-          body: JSON.stringify({
-            name: category.name,
-            slug: slug, // Use the potentially decoded slug
-            parent: 0, // We'll update parent relationships later
-            description: category.description || "",
-            image: newImageId ? { id: newImageId } : null,
-            // Set translation_of parameter if this is a translation
-            ...(mainLangId ? { translation_of: mainLangId } : {}),
-          }),
+          body: JSON.stringify(requestBody),
           headers: {
             "Content-Type": "application/json",
           },
         }
       );
+      
+      // Debug log the response
+      console.log(chalk.blue(`Response: ${JSON.stringify(response, null, 2)}`));
 
       if (!response || !response.id) {
         throw new Error(`Failed to create category: ${JSON.stringify(response)}`);
@@ -802,7 +829,7 @@ async function importCategories(): Promise<void> {
       console.log(
         chalk.cyan(`\n🌎 Importing ${filteredData[mainLanguage].length} categories in main language: ${mainLanguage} ${getFlagEmoji(mainLanguage)}`)
       );
-      await importCategoriesForLanguage(filteredData[mainLanguage], mainLanguage, idMap, stats, mainLanguage);
+      await importCategoriesForLanguage(filteredData[mainLanguage], mainLanguage, idMap, stats, mainLanguage, translations);
     }
 
     // Then import other languages
@@ -811,92 +838,12 @@ async function importCategories(): Promise<void> {
         console.log(
           chalk.cyan(`\n🌎 Importing ${filteredData[lang].length} categories in language: ${lang} ${getFlagEmoji(lang)}`)
         );
-        await importCategoriesForLanguage(filteredData[lang], lang, idMap, stats, mainLanguage);
+        await importCategoriesForLanguage(filteredData[lang], lang, idMap, stats, mainLanguage, translations);
       }
     }
 
-    // Second pass: Set up translations
-    console.log(chalk.cyan("\n🔄 Second pass: Setting up translations..."));
-
-    // Count how many translation groups we have
-    const translationGroups = Object.keys(translations.wpml).length;
-    console.log(chalk.cyan(`Found ${translationGroups} translation groups to process`));
-
-    let translationsProcessed = 0;
-    let translationsSucceeded = 0;
-    let translationsFailed = 0;
-
-    for (const [slug, langMap] of Object.entries(translations.wpml) as [string, Record<string, number>][]) {
-      try {
-        // Check if we have mapped IDs for at least two languages in this group
-        const mappedLangs = Object.entries(langMap).filter(([lang, id]) => {
-          return idMap[lang] && idMap[lang][id] !== undefined;
-        });
-
-        if (mappedLangs.length < 2) {
-          // Not enough categories were imported to create a translation relationship
-          continue;
-        }
-
-        // Create a translation relationship using the new WordPress IDs
-        const translationData: Record<string, number> = {};
-
-        // Start with the main language category as the "original"
-        let originalId: number | undefined = undefined;
-        const mainLanguage = meta.main_language;
-
-        // First, add the main language category if available
-        if (langMap[mainLanguage] && idMap[mainLanguage] && idMap[mainLanguage][langMap[mainLanguage]]) {
-          originalId = idMap[mainLanguage][langMap[mainLanguage]];
-          translationData[mainLanguage] = originalId;
-        }
-
-        // If no main language category, use the first available language
-        if (originalId === undefined) {
-          const firstLang = mappedLangs[0][0];
-          const firstId = mappedLangs[0][1] as number;
-          if (idMap[firstLang] && idMap[firstLang][firstId] !== undefined) {
-            originalId = idMap[firstLang][firstId];
-            translationData[firstLang] = originalId;
-          }
-        }
-
-        // Add translations for other languages
-        for (const [lang, id] of Object.entries(langMap)) {
-          // Make sure we have a valid mapping for this language and ID
-          if (
-            idMap[lang] && 
-            idMap[lang][id] !== undefined && 
-            (lang !== mainLanguage || idMap[lang][id] !== originalId)
-          ) {
-            translationData[lang] = idMap[lang][id];
-          }
-        }
-
-        // If we have at least two languages in this group, count it as a successful connection
-        if (Object.keys(translationData).length >= 2) {
-          const success = await createTranslationRelationship(translationData, mainLanguage);
-          if (success) {
-            translationsSucceeded++;
-          } else {
-            translationsFailed++;
-            console.log(chalk.yellow(`⚠️ Translation setup failed for group ${slug}, but import will continue`));
-          }
-        }
-
-        translationsProcessed++;
-
-        // Show progress every 10 translation groups
-        if (translationsProcessed % 10 === 0) {
-          console.log(
-            chalk.dim(`Processed ${translationsProcessed}/${translationGroups} translation groups...`)
-          );
-        }
-      } catch (error) {
-        console.error(chalk.red(`Error setting up translation for group ${slug}:`), error);
-        translationsFailed++;
-      }
-    }
+    // No second pass needed - translation relationships are established during category creation
+    // via the translation_of parameter in the POST request
 
     // Clean up temp directory
     if (fs.existsSync(tempImageDir)) {
@@ -916,10 +863,7 @@ async function importCategories(): Promise<void> {
 
     console.log("\nTranslations:");
     console.log(
-      `- ${translationsSucceeded} successfully connected via translation_of parameter`
-    );
-    console.log(
-      `- ${translationsFailed} failed to connect (WPML API unavailable)`
+      `- Translation relationships established via translation_of parameter during category creation`
     );
 
     // Only show image stats if any images were processed

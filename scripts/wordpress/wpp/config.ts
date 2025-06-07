@@ -118,7 +118,7 @@ const config: Config = {
   // Environment settings (default values)
   env: {
     lastExportSite: "Old-7IN",
-    lastImportSite: "7IN",
+    lastImportSite: "new",
   },
 };
 
