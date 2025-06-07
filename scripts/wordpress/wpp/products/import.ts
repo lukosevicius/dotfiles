@@ -4,6 +4,7 @@ import chalk from "chalk";
 import readline from "readline";
 import fetch from "node-fetch";
 import FormData from "form-data";
+import { execSync } from "child_process";
 import { DEFAULT_PATHS } from "../utils/constants";
 import { getImportSite, getExportSite } from "../utils/config-utils";
 import { fetchJSON, getSiteName } from "../utils/api";
@@ -24,14 +25,14 @@ const siteOutputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
 const siteTempImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.tempImagesDir);
 const siteWebpImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.webpImagesDir);
 
-// Legacy image directories (for backward compatibility)
+// Legacy image directories (for backward compatibility - only for reading, not writing)
 const tempImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.tempImagesDir);
 const legacyTempImagesDir = tempImagesDir; // Alias for clarity
 const legacyWebpImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.webpImagesDir);
 
-// Create all necessary directories
-if (!fs.existsSync(tempDir)) {
-  fs.mkdirSync(tempDir, { recursive: true });
+// Create site-specific directories only
+if (!fs.existsSync(siteOutputDir)) {
+  fs.mkdirSync(siteOutputDir, { recursive: true });
 }
 
 if (!fs.existsSync(siteTempImagesDir)) {
@@ -42,19 +43,14 @@ if (!fs.existsSync(siteWebpImagesDir)) {
   fs.mkdirSync(siteWebpImagesDir, { recursive: true });
 }
 
-if (!fs.existsSync(legacyTempImagesDir)) {
-  fs.mkdirSync(legacyTempImagesDir, { recursive: true });
-}
-
-if (!fs.existsSync(legacyWebpImagesDir)) {
-  fs.mkdirSync(legacyWebpImagesDir, { recursive: true });
-}
+// Legacy directories are only for reading, not creating
 
 // Track image ID mappings
 const imageMapping: Record<number, number> = {};
 
 // Command line options
 const forceImport = process.argv.includes("--force-import");
+const autoConfirm = process.argv.includes("--yes");
 const downloadImages = process.argv.includes("--download-images");
 const skipImageDownload = process.argv.includes("--skip-image-download");
 
@@ -188,8 +184,8 @@ async function importProducts(): Promise<void> {
     console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download only if not found locally')}`));
   }
   
-  // Skip confirmation if force-import flag is set
-  if (!process.argv.includes("--force-import")) {
+  // Skip confirmation if force-import or yes flag is set
+  if (!forceImport && !autoConfirm) {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout
@@ -205,7 +201,11 @@ async function importProducts(): Promise<void> {
       return;
     }
   } else {
-    console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
+    if (forceImport) {
+      console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
+    } else if (autoConfirm) {
+      console.log(chalk.dim("Skipping confirmation due to --yes flag."));
+    }
   }
   
   console.log(chalk.cyan(`🔄 Importing to: ${importSite.baseUrl} (${targetSiteName})`));
@@ -536,17 +536,17 @@ async function downloadImage(imageUrl: string, fileName: string): Promise<string
     }
     
     // First check if the image exists in site-specific temp_images directory
-    const siteTempImagesPath = path.join(siteTempImagesDir, fileName);
-    if (fs.existsSync(siteTempImagesPath)) {
+    const siteLocalImagePath = path.join(siteTempImagesDir, fileName);
+    if (fs.existsSync(siteLocalImagePath)) {
       console.log(`  Image already exists in site-specific directory: ${fileName}`);
-      return siteTempImagesPath;
+      return siteLocalImagePath;
     }
-    
-    // Then check if the image exists in legacy temp_images directory
-    const legacyTempImagesPath = path.join(legacyTempImagesDir, fileName);
-    if (fs.existsSync(legacyTempImagesPath)) {
+
+    // Check if image exists in legacy temp_images directory as fallback
+    const legacyLocalImagePath = path.join(legacyTempImagesDir, fileName);
+    if (fs.existsSync(legacyLocalImagePath)) {
       console.log(`  Image found in legacy directory: ${fileName}`);
-      return legacyTempImagesPath;
+      return legacyLocalImagePath;
     }
     
     // If not found in either directory and not using --download-images, skip download unless forced
@@ -571,6 +571,38 @@ async function downloadImage(imageUrl: string, fileName: string): Promise<string
     // Save the image to the site-specific directory
     fs.writeFileSync(filePath, imageBuffer);
     console.log(`  Image downloaded successfully to site-specific directory: ${fileName}`);
+    
+    // Automatically convert to WebP if it's a supported image format
+    const fileExtension = path.extname(fileName).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.gif'].includes(fileExtension)) {
+      try {
+        const nameWithoutExt = path.basename(fileName, fileExtension);
+        const webpOutputPath = path.join(siteWebpImagesDir, `${nameWithoutExt}.webp`);
+        
+        // Create WebP directory if it doesn't exist
+        if (!fs.existsSync(siteWebpImagesDir)) {
+          fs.mkdirSync(siteWebpImagesDir, { recursive: true });
+        }
+        
+        // Check if cwebp is installed
+        try {
+          execSync("which cwebp", { stdio: 'ignore' });
+        } catch (error) {
+          console.log("  WebP conversion skipped: cwebp not installed");
+          return filePath;
+        }
+        
+        // Convert to WebP using cwebp
+        console.log(`  Converting to WebP: ${fileName}`);
+        execSync(`cwebp -q 80 "${filePath}" -o "${webpOutputPath}"`, { stdio: 'ignore' });
+        
+        if (fs.existsSync(webpOutputPath)) {
+          console.log(`  WebP conversion successful: ${nameWithoutExt}.webp`);
+        }
+      } catch (conversionError) {
+        console.log(`  WebP conversion failed: ${conversionError instanceof Error ? conversionError.message : String(conversionError)}`);
+      }
+    }
     
     return filePath;
   } catch (error) {
@@ -817,24 +849,21 @@ async function processImage(image: any, productSlug?: string): Promise<number | 
       imageToUpload = legacyRegularImagePath;
       finalImageName = regularImageName;
     }
-    // Third priority: Download if allowed
+    // Fifth priority: Download if allowed
     else if (!skipImageDownload) {
       if (productSlug) {
-        const decodedSlug = decodeSlug(productSlug);
-        console.log(`  Downloading image for product: ${decodedSlug}`);
+        console.log(`  Downloading image for product: ${productSlug}`);
       } else {
         console.log(`  Downloading image: ${imageName}`);
       }
       
       // Download the image
-      imageToUpload = await downloadImage(image.src, regularImageName);
-      finalImageName = regularImageName;
-      importStats.images.downloaded++;
+      imageToUpload = await downloadImage(image.src, imageName);
+      finalImageName = imageName;
     }
     // Skip if no image available and downloads not allowed
     else {
-      console.log(`  Skipping image processing (--skip-image-download): ${regularImageName}`);
-      importStats.images.skipped++;
+      console.log(`  Skipping image download (--skip-image-download): ${imageName}`);
       return null;
     }
 

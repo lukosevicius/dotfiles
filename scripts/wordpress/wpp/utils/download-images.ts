@@ -8,16 +8,33 @@ import path from "path";
 import chalk from "chalk";
 import readline from "readline";
 import fetch from "node-fetch";
-import config from "../config";
+import { execSync } from "child_process";
+import { DEFAULT_PATHS } from "../utils/constants";
 import { getExportSite } from "./config-utils";
 import { getFlagEmoji } from "./language";
 import { decodeSlug } from "./formatting";
 
-// Create temp_images directory in the export folder if it doesn't exist
-const tempImagesDir = path.join(config.outputDir, "temp_images");
+// Get export site to determine site-specific directory
+const exportSite = getExportSite();
+const exportBaseUrl = exportSite.baseUrl;
+const siteDomain = exportBaseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-if (!fs.existsSync(tempImagesDir)) {
-  fs.mkdirSync(tempImagesDir, { recursive: true });
+// Create site-specific image directories
+const siteOutputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
+const siteTempImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.tempImagesDir);
+const siteWebpImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.webpImagesDir);
+
+// Legacy image directories (for backward compatibility - only for reading, not writing)
+const tempImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.tempImagesDir);
+const legacyTempImagesDir = tempImagesDir; // Alias for clarity
+
+// Create site-specific directories only
+if (!fs.existsSync(siteOutputDir)) {
+  fs.mkdirSync(siteOutputDir, { recursive: true });
+}
+
+if (!fs.existsSync(siteTempImagesDir)) {
+  fs.mkdirSync(siteTempImagesDir, { recursive: true });
 }
 
 // Command line options
@@ -43,17 +60,26 @@ interface ProductImage {
 }
 
 /**
- * Download an image from a URL
+ * Download an image from a URL and save it with the specified filename
+ * @param imageUrl URL of the image to download
+ * @param fileName The filename to save the image as (should already be renamed appropriately)
  */
 async function downloadImage(imageUrl: string, fileName: string): Promise<string | null> {
   try {
-    // Create a file path in the temp_images directory
-    const filePath = path.join(tempImagesDir, fileName);
+    // Create a file path in the site-specific temp_images directory
+    const siteFilePath = path.join(siteTempImagesDir, fileName);
+    const legacyFilePath = path.join(legacyTempImagesDir, fileName);
     
-    // Check if image already exists and we're not forcing download
-    if (fs.existsSync(filePath) && !forceDownload) {
-      console.log(`  ${chalk.yellow('SKIPPED')} Image already exists: ${fileName}`);
-      return filePath;
+    // Check if image already exists in site-specific directory first
+    if (fs.existsSync(siteFilePath) && !forceDownload) {
+      console.log(`  ${chalk.yellow('SKIPPED')} Image already exists in site-specific directory: ${fileName}`);
+      return siteFilePath;
+    }
+    
+    // Check if image exists in legacy directory (for backward compatibility)
+    if (fs.existsSync(legacyFilePath) && !forceDownload) {
+      console.log(`  ${chalk.yellow('SKIPPED')} Image found in legacy directory: ${fileName}`);
+      return legacyFilePath;
     }
     
     console.log(`  ${chalk.blue('DOWNLOADING')} ${fileName}`);
@@ -68,11 +94,45 @@ async function downloadImage(imageUrl: string, fileName: string): Promise<string
     // Get the image data
     const imageBuffer = await response.buffer();
     
-    // Save the image to disk
-    fs.writeFileSync(filePath, imageBuffer);
+    // Save the image to site-specific directory with the renamed filename
+    fs.writeFileSync(siteFilePath, imageBuffer);
     
-    console.log(`  ${chalk.green('SUCCESS')} Saved to: ${filePath}`);
-    return filePath;
+    console.log(`  ${chalk.green('SUCCESS')} Saved as: ${fileName} in ${siteTempImagesDir}`);
+    
+    // Automatically convert to WebP if it's a supported image format
+    const fileExtension = path.extname(fileName).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.gif'].includes(fileExtension)) {
+      try {
+        // Use the exact same filename (without extension) for the WebP version
+        const nameWithoutExt = path.basename(fileName, fileExtension);
+        const webpOutputPath = path.join(siteWebpImagesDir, `${nameWithoutExt}.webp`);
+        
+        // Create WebP directory if it doesn't exist
+        if (!fs.existsSync(siteWebpImagesDir)) {
+          fs.mkdirSync(siteWebpImagesDir, { recursive: true });
+        }
+        
+        // Check if cwebp is installed
+        try {
+          execSync("which cwebp", { stdio: 'ignore' });
+        } catch (error) {
+          console.log("  WebP conversion skipped: cwebp not installed");
+          return siteFilePath;
+        }
+        
+        // Convert to WebP using cwebp
+        console.log(`  Converting to WebP: ${fileName} → ${nameWithoutExt}.webp`);
+        execSync(`cwebp -q 80 "${siteFilePath}" -o "${webpOutputPath}"`, { stdio: 'ignore' });
+        
+        if (fs.existsSync(webpOutputPath)) {
+          console.log(`  WebP conversion successful: ${nameWithoutExt}.webp saved in ${siteWebpImagesDir}`);
+        }
+      } catch (conversionError) {
+        console.log(`  WebP conversion failed: ${conversionError instanceof Error ? conversionError.message : String(conversionError)}`);
+      }
+    }
+    
+    return siteFilePath;
   } catch (error) {
     console.error(`  ${chalk.red('ERROR')} Downloading image ${fileName}:`, error);
     return null;
@@ -89,14 +149,16 @@ async function processImage(image: any, slug: string, stats: DownloadStats): Pro
       return;
     }
 
-    // Use slug as the filename
-    let imageName = path.basename(image.src);
-    const fileExtension = path.extname(imageName).toLowerCase();
+    // Get original filename and extension
+    let originalName = path.basename(image.src);
+    const fileExtension = path.extname(originalName).toLowerCase();
     
-    // Use the slug as the filename
+    // Use the slug as the filename for consistency
     const decodedSlug = decodeSlug(slug);
-    imageName = `${slug}${fileExtension}`;
-    console.log(`\nProcessing image for: ${chalk.cyan(decodedSlug)}`);
+    // Create a sanitized slug-based filename to avoid special characters issues
+    const sanitizedSlug = slug.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+    const imageName = `${sanitizedSlug}${fileExtension}`;
+    console.log(`\nProcessing image for: ${chalk.cyan(decodedSlug)} → ${chalk.green(imageName)}`);
     
     // Try alternative image URLs if the main one fails
     const imageUrls = [
@@ -142,7 +204,15 @@ interface DownloadStats {
 async function downloadCategoryImages(): Promise<void> {
   try {
     // Load the export data
-    const inputFile = path.join(config.outputDir, "exported-categories.json");
+    // Try site-specific file first, then fall back to legacy location
+    const siteInputFile = path.join(siteOutputDir, DEFAULT_PATHS.categoriesFile);
+    const legacyInputFile = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.categoriesFile);
+    let inputFile = siteInputFile;
+    
+    if (!fs.existsSync(siteInputFile) && fs.existsSync(legacyInputFile)) {
+      console.log(chalk.yellow(`Site-specific export file not found, using legacy file: ${legacyInputFile}`));
+      inputFile = legacyInputFile;
+    }
     
     if (!fs.existsSync(inputFile)) {
       console.error(chalk.red(`Error: Category export file not found at ${inputFile}`));
@@ -269,7 +339,8 @@ async function downloadCategoryImages(): Promise<void> {
       }
     }
     
-    console.log(chalk.green.bold(`\nImages saved to: ${tempImagesDir}`));
+    console.log(chalk.green.bold(`\nImages saved to: ${siteTempImagesDir}`));
+    console.log(chalk.green.bold(`WebP images saved to: ${siteWebpImagesDir}`));
   } catch (error) {
     console.error(chalk.red.bold("✗ Error during image download:"), error);
     process.exit(1);
@@ -282,7 +353,15 @@ async function downloadCategoryImages(): Promise<void> {
 async function downloadProductImages(): Promise<void> {
   try {
     // Load the export data
-    const inputFile = path.join(config.outputDir, "exported-products.json");
+    // Try site-specific file first, then fall back to legacy location
+    const siteInputFile = path.join(siteOutputDir, DEFAULT_PATHS.productsFile);
+    const legacyInputFile = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.productsFile);
+    let inputFile = siteInputFile;
+    
+    if (!fs.existsSync(siteInputFile) && fs.existsSync(legacyInputFile)) {
+      console.log(chalk.yellow(`Site-specific export file not found, using legacy file: ${legacyInputFile}`));
+      inputFile = legacyInputFile;
+    }
     
     if (!fs.existsSync(inputFile)) {
       console.error(chalk.red(`Error: Product export file not found at ${inputFile}`));
@@ -413,7 +492,8 @@ async function downloadProductImages(): Promise<void> {
       }
     }
     
-    console.log(chalk.green.bold(`\nImages saved to: ${tempImagesDir}`));
+    console.log(chalk.green.bold(`\nImages saved to: ${siteTempImagesDir}`));
+    console.log(chalk.green.bold(`WebP images saved to: ${siteWebpImagesDir}`));
   } catch (error) {
     console.error(chalk.red.bold("✗ Error during image download:"), error);
     process.exit(1);

@@ -7,19 +7,39 @@ import fs from "fs";
 import path from "path";
 import chalk from "chalk";
 import { execSync } from "child_process";
-import config from "../config";
+import { DEFAULT_PATHS } from "./constants";
+import { getExportSite } from "./config-utils";
 
-// Create directories if they don't exist
-const tempImagesDir = path.join(config.outputDir, "temp_images");
-const webpImagesDir = path.join(config.outputDir, "webp_images");
+// Get the export site URL to determine the site-specific directory
+const exportSite = getExportSite();
+const exportBaseUrl = exportSite.baseUrl;
+const siteDomain = exportBaseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-if (!fs.existsSync(tempImagesDir)) {
-  fs.mkdirSync(tempImagesDir, { recursive: true });
+// Create site-specific image directories
+const siteOutputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
+const siteTempImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.tempImagesDir);
+const siteWebpImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.webpImagesDir);
+
+// Legacy image directories (for backward compatibility - only for reading, not writing)
+const tempImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.tempImagesDir);
+const legacyTempImagesDir = tempImagesDir; // Alias for clarity
+const webpImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.webpImagesDir);
+const legacyWebpImagesDir = webpImagesDir; // Alias for clarity
+
+// Create site-specific directories only
+if (!fs.existsSync(siteOutputDir)) {
+  fs.mkdirSync(siteOutputDir, { recursive: true });
 }
 
-if (!fs.existsSync(webpImagesDir)) {
-  fs.mkdirSync(webpImagesDir, { recursive: true });
+if (!fs.existsSync(siteTempImagesDir)) {
+  fs.mkdirSync(siteTempImagesDir, { recursive: true });
 }
+
+if (!fs.existsSync(siteWebpImagesDir)) {
+  fs.mkdirSync(siteWebpImagesDir, { recursive: true });
+}
+
+// Legacy directories are only for reading, not creating
 
 // Command line options
 const forceConversion = process.argv.includes("--force");
@@ -43,7 +63,14 @@ async function convertToWebP(imagePath: string, stats: ConversionStats): Promise
   try {
     const filename = path.basename(imagePath);
     const nameWithoutExt = path.basename(filename, path.extname(filename));
-    const outputPath = path.join(webpImagesDir, `${nameWithoutExt}.webp`);
+    
+    // Determine if the image is from a site-specific or legacy directory
+    const isSiteSpecific = imagePath.includes(siteDomain);
+    
+    // Use site-specific or legacy output path accordingly
+    const outputPath = isSiteSpecific
+      ? path.join(siteWebpImagesDir, `${nameWithoutExt}.webp`)
+      : path.join(legacyWebpImagesDir, `${nameWithoutExt}.webp`);
     
     // Skip if already exists and not forcing conversion
     if (fs.existsSync(outputPath) && !forceConversion) {
@@ -99,35 +126,62 @@ async function convertToWebP(imagePath: string, stats: ConversionStats): Promise
  */
 async function convertAllImages(): Promise<void> {
   console.log(chalk.blue.bold("\n=== Converting Images to WebP ==="));
-  console.log(`Source directory: ${chalk.cyan(tempImagesDir)}`);
-  console.log(`Target directory: ${chalk.cyan(webpImagesDir)}`);
+  console.log(`Site domain: ${chalk.cyan(siteDomain)}`);
+  console.log(`Site-specific source directory: ${chalk.cyan(siteTempImagesDir)}`);
+  console.log(`Site-specific target directory: ${chalk.cyan(siteWebpImagesDir)}`);
+  console.log(`Legacy source directory: ${chalk.cyan(legacyTempImagesDir)}`);
+  console.log(`Legacy target directory: ${chalk.cyan(legacyWebpImagesDir)}`);
   console.log(`Quality setting: ${chalk.cyan(quality)}%`);
   
-  // Get all images in the temp_images directory
-  const files = fs.readdirSync(tempImagesDir);
-  const imageFiles = files.filter(file => {
-    const ext = path.extname(file).toLowerCase();
-    return ['.jpg', '.jpeg', '.png', '.gif'].includes(ext);
-  });
+  // Get all images from both site-specific and legacy directories
+  let siteFiles: string[] = [];
+  let legacyFiles: string[] = [];
   
-  if (imageFiles.length === 0) {
-    console.log(chalk.yellow("\nNo images found in the temp_images directory."));
+  // Read site-specific directory if it exists
+  if (fs.existsSync(siteTempImagesDir)) {
+    siteFiles = fs.readdirSync(siteTempImagesDir).filter(file => {
+      const ext = path.extname(file).toLowerCase();
+      return ['.jpg', '.jpeg', '.png', '.gif'].includes(ext);
+    });
+  }
+  
+  // Read legacy directory if it exists
+  if (fs.existsSync(legacyTempImagesDir)) {
+    legacyFiles = fs.readdirSync(legacyTempImagesDir).filter(file => {
+      const ext = path.extname(file).toLowerCase();
+      return ['.jpg', '.jpeg', '.png', '.gif'].includes(ext);
+    });
+  }
+  
+  // Combine files, removing duplicates (prefer site-specific)
+  const siteFilesSet = new Set(siteFiles);
+  const uniqueLegacyFiles = legacyFiles.filter(file => !siteFilesSet.has(file));
+  
+  // Create full paths for all files
+  const imageFilePaths: string[] = [
+    ...siteFiles.map(file => path.join(siteTempImagesDir, file)),
+    ...uniqueLegacyFiles.map(file => path.join(legacyTempImagesDir, file))
+  ];
+  
+  if (imageFilePaths.length === 0) {
+    console.log(chalk.yellow("\nNo images found in either site-specific or legacy directories."));
     return;
   }
   
-  console.log(chalk.blue(`\nFound ${imageFiles.length} images to process...\n`));
+  console.log(chalk.blue(`\nFound ${imageFilePaths.length} images to process...\n`));
+  console.log(`Site-specific images: ${siteFiles.length}`);
+  console.log(`Unique legacy images: ${uniqueLegacyFiles.length}`);
   
   // Statistics tracking
   const stats: ConversionStats = {
-    total: imageFiles.length,
+    total: imageFilePaths.length,
     converted: 0,
     skipped: 0,
     failed: 0
   };
   
   // Process each image
-  for (const file of imageFiles) {
-    const imagePath = path.join(tempImagesDir, file);
+  for (const imagePath of imageFilePaths) {
     await convertToWebP(imagePath, stats);
   }
   
@@ -140,7 +194,16 @@ async function convertAllImages(): Promise<void> {
   
   if (stats.converted > 0) {
     console.log(chalk.green.bold("\nWebP images are available in:"));
-    console.log(chalk.cyan(webpImagesDir));
+    
+    // Show site-specific directory if any images were converted there
+    if (siteFiles.length > 0) {
+      console.log(chalk.cyan(`Site-specific directory: ${siteWebpImagesDir}`));
+    }
+    
+    // Show legacy directory if any legacy images were converted
+    if (uniqueLegacyFiles.length > 0) {
+      console.log(chalk.cyan(`Legacy directory: ${legacyWebpImagesDir}`));
+    }
   }
 }
 

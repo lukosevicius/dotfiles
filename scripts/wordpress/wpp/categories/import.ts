@@ -1,9 +1,10 @@
 import fs from "fs";
 import path from "path";
+import chalk from "chalk";
 import fetch from "node-fetch";
 import FormData from "form-data";
 import readline from "readline";
-import chalk from "chalk";
+import { execSync } from "child_process";
 import { DEFAULT_PATHS } from "../utils/constants";
 import { getImportSite, getExportSite } from "../utils/config-utils";
 import { getFlagEmoji } from "../utils/language";
@@ -91,8 +92,26 @@ const imageMapping: Record<number, number> = {};
 
 // Command line options
 const forceImport = process.argv.includes("--force-import");
-const downloadImages = process.argv.includes("--download-images");
+const autoConfirm = process.argv.includes("--yes");
+const forceImageUpload = process.argv.includes("--force-image-upload");
 const skipImageDownload = process.argv.includes("--skip-image-download");
+
+// Display help if requested
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log(`
+Category Import Tool - Help
+
+Options:
+  --force-import         Force import even if categories already exist
+  --yes                  Auto-confirm import without prompting
+  --force-image-upload   Force upload images to WordPress even if they exist
+  --skip-image-download  Skip downloading images
+  --lang=xx              Import only specific language (e.g., --lang=en)
+  --limit=N              Limit import to N categories per language
+  --help, -h             Show this help message
+`);
+  process.exit(0);
+}
 
 // Import limit option
 let importLimit: number | null = null;
@@ -114,15 +133,14 @@ const siteOutputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
 const siteTempImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.tempImagesDir);
 const siteWebpImagesDir = path.join(siteOutputDir, DEFAULT_PATHS.webpImagesDir);
 
-// Legacy image directories (for backward compatibility)
-const tempImageDir = path.join(DEFAULT_PATHS.outputDir, "temp");
+// Legacy image directories (for backward compatibility - only for reading, not writing)
 const tempImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.tempImagesDir);
 const legacyTempImagesDir = tempImagesDir; // Alias for clarity
 const legacyWebpImagesDir = path.join(DEFAULT_PATHS.outputDir, DEFAULT_PATHS.webpImagesDir);
 
-// Create all necessary directories
-if (!fs.existsSync(tempImageDir)) {
-  fs.mkdirSync(tempImageDir, { recursive: true });
+// Create site-specific directories only
+if (!fs.existsSync(siteOutputDir)) {
+  fs.mkdirSync(siteOutputDir, { recursive: true });
 }
 
 if (!fs.existsSync(siteTempImagesDir)) {
@@ -131,14 +149,6 @@ if (!fs.existsSync(siteTempImagesDir)) {
 
 if (!fs.existsSync(siteWebpImagesDir)) {
   fs.mkdirSync(siteWebpImagesDir, { recursive: true });
-}
-
-if (!fs.existsSync(legacyTempImagesDir)) {
-  fs.mkdirSync(legacyTempImagesDir, { recursive: true });
-}
-
-if (!fs.existsSync(legacyWebpImagesDir)) {
-  fs.mkdirSync(legacyWebpImagesDir, { recursive: true });
 }
 
 /**
@@ -217,6 +227,39 @@ async function downloadImage(
       // We found a working image, save it
       fs.writeFileSync(siteLocalImagePath, buffer);
       console.log(`  Image downloaded successfully to site-specific directory: ${imageName}`);
+      
+      // Automatically convert to WebP if it's a supported image format
+      const fileExtension = path.extname(imageName).toLowerCase();
+      if (['.jpg', '.jpeg', '.png', '.gif'].includes(fileExtension)) {
+        try {
+          const nameWithoutExt = path.basename(imageName, fileExtension);
+          const webpOutputPath = path.join(siteWebpImagesDir, `${nameWithoutExt}.webp`);
+          
+          // Create WebP directory if it doesn't exist
+          if (!fs.existsSync(siteWebpImagesDir)) {
+            fs.mkdirSync(siteWebpImagesDir, { recursive: true });
+          }
+          
+          // Check if cwebp is installed
+          try {
+            execSync("which cwebp", { stdio: 'ignore' });
+          } catch (error) {
+            console.log("  WebP conversion skipped: cwebp not installed");
+            return siteLocalImagePath;
+          }
+          
+          // Convert to WebP using cwebp
+          console.log(`  Converting to WebP: ${imageName}`);
+          execSync(`cwebp -q 80 "${siteLocalImagePath}" -o "${webpOutputPath}"`, { stdio: 'ignore' });
+          
+          if (fs.existsSync(webpOutputPath)) {
+            console.log(`  WebP conversion successful: ${nameWithoutExt}.webp`);
+          }
+        } catch (conversionError) {
+          console.log(`  WebP conversion failed: ${conversionError instanceof Error ? conversionError.message : String(conversionError)}`);
+        }
+      }
+      
       return siteLocalImagePath;
     } catch (error) {
       console.log(
@@ -225,18 +268,25 @@ async function downloadImage(
     }
   }
 
-  throw new Error(`Failed to download image: ${imageUrl}`);
+  console.log(`  ${chalk.red('FAILED')} Could not download image after trying ${imageUrls.length} variations`);
+  throw new Error(`Failed to download image`);
 }
 
 /**
  * Check if an image with the same filename already exists in WordPress
  * and verify that it's actually accessible
  */
-async function checkImageExists(filename: string): Promise<number | null> {
+async function checkImageExists(filename: string, forceUpload: boolean = false): Promise<number | null> {
   const importSite = getImportSite();
   try {
-    // Search for media with the same filename
-    const searchUrl = `${importSite.baseUrl}/wp-json/wp/v2/media?search=${encodeURIComponent(filename)}`;
+    // Get the file extension and base name
+    const fileExt = path.extname(filename).toLowerCase();
+    const filenameWithoutExt = path.basename(filename, fileExt);
+    
+    // Search for media with the exact filename
+    const searchUrl = `${importSite.baseUrl}/wp-json/wp/v2/media?search=${encodeURIComponent(filenameWithoutExt)}`;
+    console.log(`  Checking if image exists in WordPress with search: ${filenameWithoutExt}`);
+    
     const response = await fetch(searchUrl, {
       headers: {
         Authorization: `Basic ${Buffer.from(
@@ -251,32 +301,48 @@ async function checkImageExists(filename: string): Promise<number | null> {
 
     const data = await response.json();
     
-    // Check if any of the returned media items have the exact filename
+    // No results means no matching image
+    if (!data || data.length === 0) {
+      console.log(`  No matching images found in WordPress for: ${filenameWithoutExt}`);
+      return null;
+    }
+    
+    console.log(`  Found ${data.length} potential matches for: ${filenameWithoutExt}`);
+    
+    // First try exact filename match (including extension)
     for (const item of data) {
-      const itemFilename = path.basename(item.source_url || '');
+      if (!item.source_url) continue;
+      
+      const itemFilename = path.basename(item.source_url);
       if (itemFilename === filename) {
-        // Verify that the image actually exists and is accessible
-        try {
-          // Try to fetch the image details to confirm it exists
-          const imageUrl = `${importSite.baseUrl}/wp-json/wp/v2/media/${item.id}`;
-          const imageResponse = await fetch(imageUrl, {
-            headers: {
-              Authorization: `Basic ${Buffer.from(
-                `${importSite.username}:${importSite.password}`
-              ).toString("base64")}`,
-            },
-            method: "HEAD", // Just check headers, don't download the full image
-          });
-          
-          if (imageResponse.ok) {
-            console.log(`  Found existing image: ${filename} (ID: ${item.id})`);
-            return item.id;
-          } else {
-            console.log(`  Found image record for ${filename} (ID: ${item.id}) but it appears to be inaccessible`);
-          }
-        } catch (err) {
-          console.log(`  Error verifying image ${filename} (ID: ${item.id}): ${err}`);
+        console.log(`  Found exact match: ${itemFilename}`);
+        // Exact match found - verify it's accessible
+        const verifiedId = await verifyImageExists(item.id, filename, importSite);
+        if (verifiedId) return verifiedId;
+      }
+    }
+    
+    // If no exact match, try matching by filename without extension
+    // This is important because WordPress might store the same image with different extensions
+    // (e.g., .jpg vs .jpeg or .webp)
+    for (const item of data) {
+      if (!item.source_url) continue;
+      
+      const itemFilename = path.basename(item.source_url);
+      const itemWithoutExt = path.basename(itemFilename, path.extname(itemFilename));
+      
+      // If the filenames match (ignoring extension), consider it a match only if we're uploading the same image
+      if (itemWithoutExt === filenameWithoutExt) {
+        console.log(`  Found filename match with different extension: ${itemFilename}`);
+        // Don't automatically use this - we need to verify it's the same image
+        // Only return this if we're specifically looking for this image
+        if (forceUpload) {
+          console.log(`  Skipping due to force upload flag`);
+          continue;
         }
+        
+        const verifiedId = await verifyImageExists(item.id, itemFilename, importSite);
+        if (verifiedId) return verifiedId;
       }
     }
     
@@ -288,21 +354,77 @@ async function checkImageExists(filename: string): Promise<number | null> {
 }
 
 /**
+ * Interface for import site configuration
+ */
+interface ImportSite {
+  baseUrl: string;
+  username: string;
+  password: string;
+}
+
+/**
+ * Verify that an image with the given ID exists and is accessible in WordPress
+ */
+async function verifyImageExists(
+  imageId: number, 
+  filename: string, 
+  importSite: ImportSite
+): Promise<number | null> {
+  try {
+    // Try to fetch the image details to confirm it exists
+    const imageUrl = `${importSite.baseUrl}/wp-json/wp/v2/media/${imageId}`;
+    const imageResponse = await fetch(imageUrl, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(
+          `${importSite.username}:${importSite.password}`
+        ).toString("base64")}`,
+      },
+    });
+    
+    if (imageResponse.ok) {
+      const imageData = await imageResponse.json();
+      
+      // Verify the image has a valid URL and media_details
+      if (imageData.source_url && imageData.media_details) {
+        console.log(`  Found existing image: ${filename} (ID: ${imageId})`);
+        return imageId;
+      } else {
+        console.log(`  Found image record for ${filename} (ID: ${imageId}) but it appears to be incomplete`);
+      }
+    } else {
+      console.log(`  Found image record for ${filename} (ID: ${imageId}) but it appears to be inaccessible`);
+    }
+    return null;
+  } catch (err) {
+    console.log(`  Error verifying image ${filename} (ID: ${imageId}): ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+/**
  * Upload an image to WordPress and return the media ID
  */
 async function uploadImage(
   filePath: string,
-  fileName: string
+  fileName: string,
+  forceUpload: boolean = false
 ): Promise<number> {
   try {
     console.log(`Uploading image: ${fileName}`);
     
-    // First check if an image with this name already exists
-    const existingImageId = await checkImageExists(fileName);
-    if (existingImageId) {
-      console.log(`  Image with name ${fileName} already exists (ID: ${existingImageId}), using existing image`);
-      return existingImageId;
+    // Check if we should force upload or check for existing images
+    if (!forceUpload) {
+      // First check if an image with this name already exists in WordPress
+      const existingImageId = await checkImageExists(fileName, forceUpload);
+      if (existingImageId) {
+        console.log(`  Image with name ${fileName} already exists in WordPress (ID: ${existingImageId}), using existing image`);
+        return existingImageId;
+      }
+    } else {
+      console.log(`  Force uploading image to WordPress regardless of existing images`);
     }
+    
+    console.log(`  Uploading new image to WordPress...`);
     
     // Check if file exists
     if (!fs.existsSync(filePath)) {
@@ -465,7 +587,8 @@ async function uploadImageAlternative(
 async function processImage(
   image: any,
   stats: ImportStats,
-  categorySlug?: string
+  categorySlug?: string,
+  forceUpload: boolean = false
 ): Promise<number | null> {
   try {
     if (!image || !image.src) {
@@ -485,10 +608,23 @@ async function processImage(
     // Use category slug as the filename if provided, otherwise extract from URL
     let imageName = path.basename(image.src);
     const fileExtension = path.extname(imageName).toLowerCase();
-    const nameWithoutExt = categorySlug || path.basename(imageName, fileExtension);
     
-    // Define the regular image name (used for download and reference)
-    const regularImageName = categorySlug ? `${categorySlug}${fileExtension}` : imageName;
+    // Properly sanitize the slug for use as a filename
+    let sanitizedSlug = "";
+    if (categorySlug) {
+      // Create a sanitized slug-based filename to avoid special characters issues
+      sanitizedSlug = categorySlug.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+    }
+    
+    // Define the final image name with proper sanitization
+    const regularImageName = categorySlug ? 
+      `${sanitizedSlug}${fileExtension}` : 
+      imageName;
+      
+    // For WebP conversion, use the same base name
+    const nameWithoutExt = categorySlug ? 
+      sanitizedSlug : 
+      path.basename(imageName, fileExtension);
     
     // Check for WebP version first
     // Check for WebP version in site-specific directory first
@@ -498,55 +634,58 @@ async function processImage(
     const legacyWebpImagePath = path.join(legacyWebpImagesDir, `${nameWithoutExt}.webp`);
     
     // Check for regular version in site-specific directory first
-    const siteRegularImagePath = path.join(siteTempImagesDir, imageName);
+    const siteRegularImagePath = path.join(siteTempImagesDir, regularImageName);
     
     // Check for regular version in legacy directory as fallback
-    const legacyRegularImagePath = path.join(legacyTempImagesDir, imageName);
+    const legacyRegularImagePath = path.join(legacyTempImagesDir, regularImageName);
     
     let imageToUpload: string | null = null;
     let finalImageName = "";
     
-    // First priority:    // Check if WebP version exists in site-specific directory
+    // First priority: Check if WebP version exists in site-specific directory
     if (fs.existsSync(siteWebpImagePath)) {
       console.log(`  Using site-specific WebP version: ${path.basename(siteWebpImagePath)}`);
       imageToUpload = siteWebpImagePath;
       finalImageName = path.basename(siteWebpImagePath);
     }
-    
-    // Check if WebP version exists in legacy directory
-    if (fs.existsSync(legacyWebpImagePath)) {
+    // Second priority: Check if WebP version exists in legacy directory
+    else if (fs.existsSync(legacyWebpImagePath)) {
       console.log(`  Using legacy WebP version: ${path.basename(legacyWebpImagePath)}`);
       imageToUpload = legacyWebpImagePath;
       finalImageName = path.basename(legacyWebpImagePath);
     }
-    
-    // Check if regular version exists in site-specific directory
-    if (fs.existsSync(siteRegularImagePath)) {
-      console.log(`  Using site-specific regular version: ${imageName}`);
+    // Third priority: Check if regular version exists in site-specific directory
+    else if (fs.existsSync(siteRegularImagePath)) {
+      console.log(`  Using site-specific regular version: ${regularImageName}`);
       imageToUpload = siteRegularImagePath;
-      finalImageName = imageName;
+      finalImageName = regularImageName;
     }
-    
-    // Check if regular version exists in legacy directory
-    if (fs.existsSync(legacyRegularImagePath)) {
-      console.log(`  Using legacy regular version: ${imageName}`);
+    // Fourth priority: Check if regular version exists in legacy directory
+    else if (fs.existsSync(legacyRegularImagePath)) {
+      console.log(`  Using legacy regular version: ${regularImageName}`);
       imageToUpload = legacyRegularImagePath;
-      finalImageName = imageName;
+      finalImageName = regularImageName;
     }
-    
-    // Third priority: Download if allowed
+    // Fifth priority: Download if allowed
     else if (!skipImageDownload) {
       if (categorySlug) {
         const decodedSlug = decodeSlug(categorySlug);
-        console.log(`  Downloading image for category: ${decodedSlug}`);
+        console.log(`  Downloading image for category: ${decodedSlug} as ${regularImageName}`);
       } else {
-        console.log(`  Downloading image: ${imageName}`);
+        console.log(`  Downloading image as: ${regularImageName}`);
       }
       
-      // Download the image
-      imageToUpload = await downloadImage(image.src, imageName);
-      finalImageName = imageName;
-      stats.images.downloaded++;
+      try {
+        // Download the image with the proper renamed filename
+        imageToUpload = await downloadImage(image.src, regularImageName);
+        finalImageName = regularImageName;
+        stats.images.downloaded++;
+      } catch (downloadError) {
+        console.log(`  ${chalk.yellow('WARNING')} Image download failed, continuing with category import`);
+        stats.images.failed++;
+        // Continue with null imageToUpload
+        imageToUpload = null;
+      }
     }
     // Skip if no image available and downloads not allowed
     else {
@@ -557,7 +696,8 @@ async function processImage(
 
     // Upload the image
     if (imageToUpload) {
-      const newImageId = await uploadImage(imageToUpload, finalImageName);
+      // Force upload the image to WordPress
+      const newImageId = await uploadImage(imageToUpload, finalImageName, forceUpload);
       stats.images.uploaded++;
 
       // Store the mapping
@@ -738,8 +878,19 @@ async function importCategoriesForLanguage(
       // Process image if present
       let newImageId: number | null = null;
       if (category.image) {
-        // Use the category slug for the image filename
-        newImageId = await processImage(category.image, stats, slug);
+        // Only download images for the main language
+        if (lang === mainLanguage) {
+          // Process image if available
+          newImageId = await processImage(category.image, stats, slug, forceImageUpload);
+        } else {
+          // For translations, check if the image ID is already mapped (processed in main language)
+          if (category.image.id && imageMapping[category.image.id]) {
+            console.log(`  Image already processed in main language (ID: ${category.image.id} → ${imageMapping[category.image.id]})`);
+            newImageId = imageMapping[category.image.id];
+            stats.images.skipped++;
+          }
+          // If not mapped, don't try to download for non-main languages
+        }
       }
 
       // Check if this is a translation and get the main language category ID
@@ -945,14 +1096,14 @@ async function importCategories(): Promise<void> {
     // Show image download settings
     if (skipImageDownload) {
       console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will NOT download images')} (using --skip-image-download)`));
-    } else if (downloadImages) {
-      console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download ALL images')} (using --download-images)`));
+    } else if (forceImageUpload) {
+      console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will FORCE UPLOAD all images to WordPress')} (using --force-image-upload)`));
     } else {
       console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download only if not found locally')}`));
     }
 
-    // Skip confirmation if force-import flag is set
-    if (!forceImport) {
+    // Skip confirmation if force-import or yes flag is set
+    if (!forceImport && !autoConfirm) {
       const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,
@@ -968,7 +1119,11 @@ async function importCategories(): Promise<void> {
         return;
       }
     } else {
-      console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
+      if (forceImport) {
+        console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
+      } else if (autoConfirm) {
+        console.log(chalk.dim("Skipping confirmation due to --yes flag."));
+      }
     }
 
     console.log(chalk.cyan(`🔄 Importing to: ${importSite.baseUrl} (${targetSiteName})`));
@@ -1003,10 +1158,13 @@ async function importCategories(): Promise<void> {
     // No second pass needed - translation relationships are established during category creation
     // via the translation_of parameter in the POST request
 
-    // Clean up temp directory
-    if (fs.existsSync(tempImageDir)) {
-      fs.rmSync(tempImageDir, { recursive: true, force: true });
+    // Clean up temp directory - commented out to prevent deleting legacy directories
+    // We no longer create or clean up legacy directories
+    /* 
+    if (fs.existsSync(tempImagesDir)) {
+      fs.rmSync(tempImagesDir, { recursive: true, force: true });
     }
+    */
 
     // Print statistics
     console.log("\n📊 Import Statistics:");
