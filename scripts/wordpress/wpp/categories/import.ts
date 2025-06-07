@@ -198,6 +198,65 @@ async function downloadImage(
 }
 
 /**
+ * Check if an image with the same filename already exists in WordPress
+ * and verify that it's actually accessible
+ */
+async function checkImageExists(filename: string): Promise<number | null> {
+  const importSite = getImportSite();
+  try {
+    // Search for media with the same filename
+    const searchUrl = `${importSite.baseUrl}/wp-json/wp/v2/media?search=${encodeURIComponent(filename)}`;
+    const response = await fetch(searchUrl, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(
+          `${importSite.username}:${importSite.password}`
+        ).toString("base64")}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to search for image: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    // Check if any of the returned media items have the exact filename
+    for (const item of data) {
+      const itemFilename = path.basename(item.source_url || '');
+      if (itemFilename === filename) {
+        // Verify that the image actually exists and is accessible
+        try {
+          // Try to fetch the image details to confirm it exists
+          const imageUrl = `${importSite.baseUrl}/wp-json/wp/v2/media/${item.id}`;
+          const imageResponse = await fetch(imageUrl, {
+            headers: {
+              Authorization: `Basic ${Buffer.from(
+                `${importSite.username}:${importSite.password}`
+              ).toString("base64")}`,
+            },
+            method: "HEAD", // Just check headers, don't download the full image
+          });
+          
+          if (imageResponse.ok) {
+            console.log(`  Found existing image: ${filename} (ID: ${item.id})`);
+            return item.id;
+          } else {
+            console.log(`  Found image record for ${filename} (ID: ${item.id}) but it appears to be inaccessible`);
+          }
+        } catch (err) {
+          console.log(`  Error verifying image ${filename} (ID: ${item.id}): ${err}`);
+        }
+      }
+    }
+    
+    return null; // No matching image found or all matches were inaccessible
+  } catch (error) {
+    console.error("Error checking if image exists:", error);
+    return null;
+  }
+}
+
+/**
  * Upload an image to WordPress and return the media ID
  */
 async function uploadImage(
@@ -206,6 +265,13 @@ async function uploadImage(
 ): Promise<number> {
   try {
     console.log(`Uploading image: ${fileName}`);
+    
+    // First check if an image with this name already exists
+    const existingImageId = await checkImageExists(fileName);
+    if (existingImageId) {
+      console.log(`  Image with name ${fileName} already exists (ID: ${existingImageId}), using existing image`);
+      return existingImageId;
+    }
     
     // Check if file exists
     if (!fs.existsSync(filePath)) {
@@ -272,19 +338,8 @@ async function uploadImage(
         errorDetails = errorText;
       }
       
-      // If we get a 500 error about file types, try alternative upload method
-      if (response.status === 500 && 
-          typeof errorDetails === 'object' && 
-          errorDetails.message && 
-          errorDetails.message.includes("negalite įkelti tokio tipo failų")) {
-        console.log("  Trying alternative upload method...");
-        return await uploadImageAlternative(newFilePath, fileName);
-      }
-      
       throw new Error(
-        `Failed to upload image: ${response.status} ${response.statusText}\nDetails: ${JSON.stringify(
-          errorDetails
-        )}`
+        `Failed to upload image: ${response.status} ${response.statusText}\nDetails: ${JSON.stringify(errorDetails)}`
       );
     }
     

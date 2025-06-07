@@ -8,8 +8,45 @@ import { getImportSite } from "../utils/config-utils";
 import { getFlagEmoji } from "../utils/language";
 import { fetchJSON, getSiteName } from "../utils/api";
 
+/**
+ * Delete an image if its filename matches the category slug
+ * @param imageId - The ID of the image to check and delete
+ * @param categorySlug - The slug of the category
+ * @param baseUrl - The base URL of the WordPress site
+ */
+async function deleteImageIfMatchingSlug(imageId: number, categorySlug: string, baseUrl: string): Promise<void> {
+  try {
+    // Get image details
+    const imageUrl = `${baseUrl}/wp-json/wp/v2/media/${imageId}`;
+    const imageDetails = await fetchJSON(imageUrl);
+    
+    // Check if the image filename matches the category slug
+    const filename = path.basename(imageDetails.source_url || '');
+    const filenameWithoutExt = path.basename(filename, path.extname(filename));
+    
+    // Check if the filename (without extension) matches the category slug
+    if (filenameWithoutExt === categorySlug) {
+      console.log(chalk.blue(`Found matching image: ${filename} for category: ${categorySlug}`));
+      
+      // Delete the image
+      const deleteUrl = `${baseUrl}/wp-json/wp/v2/media/${imageId}?force=true`;
+      await fetchJSON(deleteUrl, { method: "DELETE" });
+      console.log(chalk.green(`✓ Deleted image: ${filename} (ID: ${imageId})`));
+    } else {
+      console.log(chalk.dim(`Image filename ${filenameWithoutExt} doesn't match category slug ${categorySlug}, skipping`));
+    }
+  } catch (error) {
+    console.error(chalk.yellow(`⚠️ Error checking/deleting image ID ${imageId}:`), error);
+    throw error;
+  }
+}
+
 // Check if --confirm flag is provided
 const shouldConfirm = !process.argv.includes("--confirm");
+
+// Check if --delete-images flag is provided
+const shouldDeleteImages = process.argv.includes("--delete-images");
+let deleteImagesConfirmed = false;
 
 interface CategoryData {
   id: number;
@@ -28,9 +65,16 @@ export async function deleteCategory(categoryId: number, lang: string): Promise<
   const importSite = getImportSite();
   try {
     // First try to get the category details to show better error messages
+    let categorySlug: string | undefined;
+    let categoryName: string | undefined;
+    let imageId: number | undefined;
+    
     try {
       const detailsUrl = `${importSite.baseUrl}/wp-json/wc/v3/products/categories/${categoryId}?lang=${lang}`;
       const categoryDetails = await fetchJSON(detailsUrl);
+      categorySlug = categoryDetails.slug;
+      categoryName = categoryDetails.name;
+      imageId = categoryDetails.image?.id;
       
       // Check if this is a default category based on metadata or slug
       if (categoryDetails.slug === 'uncategorized' || 
@@ -44,7 +88,21 @@ export async function deleteCategory(categoryId: number, lang: string): Promise<
       // Silently continue if we can't get details - we'll try to delete anyway
     }
     
-    // Proceed with deletion
+    // Delete associated image ONLY if this is the default language category
+    // and image deletion is requested and the image has a matching slug
+    const mainLanguage = importSite.mainLanguage || 'lt';
+    if ((shouldDeleteImages || deleteImagesConfirmed) && imageId && categorySlug && lang === mainLanguage) {
+      try {
+        console.log(chalk.blue(`Checking image for default language category ${categoryName || categoryId} (${lang})...`));
+        await deleteImageIfMatchingSlug(imageId, categorySlug, importSite.baseUrl);
+      } catch (imageError) {
+        console.log(chalk.yellow(`⚠️ Failed to delete image for category ${categoryName || categoryId}: ${imageError}`));
+      }
+    } else if ((shouldDeleteImages || deleteImagesConfirmed) && imageId && lang !== mainLanguage) {
+      console.log(chalk.dim(`Skipping image deletion for non-default language category (${lang} ≠ ${mainLanguage})`));
+    }
+    
+    // Proceed with category deletion
     const url = `${importSite.baseUrl}/wp-json/wc/v3/products/categories/${categoryId}?force=true&lang=${lang}`;
     const response = await fetchJSON(url, { method: "DELETE" });
     console.log(chalk.green(`✓ Deleted category: ${response.name} (ID: ${response.id}, Lang: ${lang})`));
@@ -228,6 +286,26 @@ async function fetchAllCategories(): Promise<any[]> {
 
 export async function deleteAllCategories(): Promise<void> {
   try {
+    // Ask about deleting related images if not already specified via flag
+    if (!shouldDeleteImages && !deleteImagesConfirmed) {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      const answer = await new Promise<string>(resolve => {
+        rl.question(chalk.yellow('\nDo you want to delete related category images with matching slugs? (y/n): '), resolve);
+      });
+      
+      rl.close();
+      deleteImagesConfirmed = answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes';
+      
+      if (deleteImagesConfirmed) {
+        console.log(chalk.cyan('Will delete related images with matching category slugs.'));
+      } else {
+        console.log(chalk.dim('Skipping image deletion.'));
+      }
+    }
     // Fetch all categories from all languages
     const allCategories = await fetchAllCategories();
     
