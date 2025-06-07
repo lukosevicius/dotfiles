@@ -9,7 +9,7 @@ import { getFlagEmoji } from "../utils/language";
 import { fetchJSON, getSiteName } from "../utils/api";
 
 /**
- * Delete an image if its filename matches the category slug
+ * Delete an image and its thumbnails if its filename matches the category slug
  * @param imageId - The ID of the image to check and delete
  * @param categorySlug - The slug of the category
  * @param baseUrl - The base URL of the WordPress site
@@ -18,26 +18,186 @@ async function deleteImageIfMatchingSlug(imageId: number, categorySlug: string, 
   try {
     // Get image details
     const imageUrl = `${baseUrl}/wp-json/wp/v2/media/${imageId}`;
-    const imageDetails = await fetchJSON(imageUrl);
-    
-    // Check if the image filename matches the category slug
-    const filename = path.basename(imageDetails.source_url || '');
-    const filenameWithoutExt = path.basename(filename, path.extname(filename));
-    
-    // Check if the filename (without extension) matches the category slug
-    if (filenameWithoutExt === categorySlug) {
-      console.log(chalk.blue(`Found matching image: ${filename} for category: ${categorySlug}`));
+    try {
+      const imageDetails = await fetchJSON(imageUrl);
       
-      // Delete the image
-      const deleteUrl = `${baseUrl}/wp-json/wp/v2/media/${imageId}?force=true`;
-      await fetchJSON(deleteUrl, { method: "DELETE" });
-      console.log(chalk.green(`✓ Deleted image: ${filename} (ID: ${imageId})`));
+      // Check if the image filename matches the category slug
+      const sourceUrl = imageDetails.source_url || '';
+      const filename = path.basename(sourceUrl);
+      const fileExt = path.extname(filename);
+      const filenameWithoutExt = path.basename(filename, fileExt);
+      
+      // Check if the filename (without extension) matches the category slug
+      if (filenameWithoutExt === categorySlug) {
+        console.log(chalk.blue(`Found matching image: ${filename} for category: ${categorySlug}`));
+        
+        // First, check for and delete any related thumbnail images
+        await deleteRelatedThumbnails(baseUrl, filenameWithoutExt, fileExt);
+        
+        // Delete the main image
+        const deleteUrl = `${baseUrl}/wp-json/wp/v2/media/${imageId}?force=true`;
+        await fetchJSON(deleteUrl, { method: "DELETE" });
+        console.log(chalk.green(`✓ Deleted main image: ${filename} (ID: ${imageId})`));
+      } else {
+        console.log(chalk.dim(`Image filename ${filenameWithoutExt} doesn't match category slug ${categorySlug}, skipping`));
+      }
+    } catch (detailsError: any) {
+      // Handle 404 errors gracefully
+      if (detailsError.message && detailsError.message.includes('404')) {
+        console.log(chalk.yellow(`⚠️ Image ID ${imageId} not found - it may have been already deleted`));
+      } else {
+        console.log(chalk.yellow(`⚠️ Could not get details for image ID ${imageId}: ${detailsError.message || detailsError}`));
+      }
+    }
+  } catch (error: any) {
+    // This outer catch is for unexpected errors
+    console.log(chalk.yellow(`⚠️ Unexpected error processing image ID ${imageId}: ${error.message || error}`));
+  }
+}
+
+/**
+ * Find and delete thumbnail images related to the main image
+ * @param baseUrl - The base URL of the WordPress site
+ * @param baseFilename - The base filename without extension
+ * @param extension - The file extension including the dot
+ */
+async function deleteRelatedThumbnails(baseUrl: string, baseFilename: string, extension: string): Promise<void> {
+  try {
+    // Search for media items that might be thumbnails of this image
+    // WordPress typically names thumbnails as: original-filename-WIDTHxHEIGHT.extension
+    const searchUrl = `${baseUrl}/wp-json/wp/v2/media?search=${encodeURIComponent(baseFilename)}&per_page=100`;
+    const response = await fetch(searchUrl, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(
+          `${getImportSite().username}:${getImportSite().password}`
+        ).toString("base64")}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to search for thumbnails: ${response.statusText}`);
+    }
+
+    const items = await response.json();
+    let thumbnailsDeleted = 0;
+    
+    // Look for thumbnails matching the pattern: baseFilename-WIDTHxHEIGHT.extension
+    const thumbnailPattern = new RegExp(`^${baseFilename}-\d+x\d+${extension.replace('.', '\.')}$`);
+    
+    for (const item of items) {
+      const itemFilename = path.basename(item.source_url || '');
+      
+      // Check if this is a thumbnail of our target image
+      if (thumbnailPattern.test(itemFilename)) {
+        console.log(chalk.blue(`Found thumbnail: ${itemFilename}`));
+        
+        try {
+          // Delete the thumbnail
+          const deleteUrl = `${baseUrl}/wp-json/wp/v2/media/${item.id}?force=true`;
+          await fetchJSON(deleteUrl, { method: "DELETE" });
+          console.log(chalk.green(`✓ Deleted thumbnail: ${itemFilename} (ID: ${item.id})`));
+          thumbnailsDeleted++;
+        } catch (error) {
+          console.log(chalk.yellow(`⚠️ Failed to delete thumbnail ${itemFilename}: ${error}`));
+        }
+      }
+    }
+    
+    if (thumbnailsDeleted > 0) {
+      console.log(chalk.green(`✓ Deleted ${thumbnailsDeleted} thumbnail images related to ${baseFilename}${extension}`));
     } else {
-      console.log(chalk.dim(`Image filename ${filenameWithoutExt} doesn't match category slug ${categorySlug}, skipping`));
+      console.log(chalk.dim(`No thumbnails found for ${baseFilename}${extension}`));
+    }
+    
+    // Now delete the physical files from the server
+    await deletePhysicalFiles(baseUrl, baseFilename, extension);
+    
+  } catch (error) {
+    console.error(chalk.yellow(`⚠️ Error finding/deleting thumbnails for ${baseFilename}${extension}:`), error);
+  }
+}
+
+/**
+ * Delete physical image files from the server
+ * @param baseUrl - The base URL of the WordPress site
+ * @param baseFilename - The base filename without extension
+ * @param extension - The file extension including the dot
+ */
+async function deletePhysicalFiles(baseUrl: string, baseFilename: string, extension: string): Promise<void> {
+  try {
+    // Check if the custom endpoint is available
+    const importSite = getImportSite();
+    const endpointUrl = `${baseUrl}/wp-json/wpp/v1/cleanup-files`;
+    
+    // First check if the endpoint exists
+    try {
+      const checkResponse = await fetch(`${baseUrl}/wp-json/wpp/v1`, {
+        method: "HEAD",
+        headers: {
+          Authorization: `Basic ${Buffer.from(
+            `${importSite.username}:${importSite.password}`
+          ).toString("base64")}`,
+        },
+      });
+      
+      if (!checkResponse.ok) {
+        console.log(chalk.yellow(`⚠️ Custom file cleanup endpoint not available. You need to install the file-cleanup.php script to your WordPress site.`));
+        console.log(chalk.yellow(`   Physical files will remain on the server and need to be cleaned up manually.`));
+        return;
+      }
+    } catch (error) {
+      console.log(chalk.yellow(`⚠️ Could not check for custom endpoint: ${error}`));
+      return;
+    }
+    
+    // Call the custom endpoint to delete physical files
+    const response = await fetch(endpointUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${Buffer.from(
+          `${importSite.username}:${importSite.password}`
+        ).toString("base64")}`,
+      },
+      body: JSON.stringify({
+        base_filename: baseFilename,
+        extension: extension
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to delete physical files: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    
+    if (result.success) {
+      if (result.deleted_count > 0) {
+        console.log(chalk.green(`✓ Deleted ${result.deleted_count} physical files from the server`));
+      } else {
+        console.log(chalk.dim(`No physical files found to delete on the server`));
+        
+        // Log debug information to help troubleshoot
+        if (result.debug) {
+          console.log(chalk.blue('Debug information:'));
+          console.log(chalk.blue(`  Base directory: ${result.debug.base_dir}`));
+          console.log(chalk.blue(`  Looking for: ${result.debug.base_filename}${result.debug.extension}`));
+          console.log(chalk.blue(`  Searched ${result.debug.searched_paths_count} paths`));
+          console.log(chalk.blue('  Sample paths searched:'));
+          result.debug.searched_paths_sample.forEach((path: string) => {
+            console.log(chalk.blue(`    - ${path}`));
+          });
+        }
+      }
+      
+      if (result.failed_count > 0) {
+        console.log(chalk.yellow(`⚠️ Failed to delete ${result.failed_count} physical files`));
+      }
+    } else {
+      console.log(chalk.yellow(`⚠️ Failed to delete physical files: ${result.message}`));
     }
   } catch (error) {
-    console.error(chalk.yellow(`⚠️ Error checking/deleting image ID ${imageId}:`), error);
-    throw error;
+    console.error(chalk.yellow(`⚠️ Error deleting physical files: ${error}`));
   }
 }
 
@@ -92,12 +252,9 @@ export async function deleteCategory(categoryId: number, lang: string): Promise<
     // and image deletion is requested and the image has a matching slug
     const mainLanguage = importSite.mainLanguage || 'lt';
     if ((shouldDeleteImages || deleteImagesConfirmed) && imageId && categorySlug && lang === mainLanguage) {
-      try {
-        console.log(chalk.blue(`Checking image for default language category ${categoryName || categoryId} (${lang})...`));
-        await deleteImageIfMatchingSlug(imageId, categorySlug, importSite.baseUrl);
-      } catch (imageError) {
-        console.log(chalk.yellow(`⚠️ Failed to delete image for category ${categoryName || categoryId}: ${imageError}`));
-      }
+      console.log(chalk.blue(`Checking image for default language category ${categoryName || categoryId} (${lang})...`));
+      // deleteImageIfMatchingSlug now handles its own errors internally
+      await deleteImageIfMatchingSlug(imageId, categorySlug, importSite.baseUrl);
     } else if ((shouldDeleteImages || deleteImagesConfirmed) && imageId && lang !== mainLanguage) {
       console.log(chalk.dim(`Skipping image deletion for non-default language category (${lang} ≠ ${mainLanguage})`));
     }
