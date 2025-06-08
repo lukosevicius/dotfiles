@@ -190,25 +190,70 @@ program
       
       displayHeader(`Importing ${contentTypeName}`);
       
-      // Ask for the number of items to import
-      const rl = createPrompt();
-      const answer = await new Promise<string>((resolve) => {
-        rl.question(chalk.cyan(`How many ${selectedContentType} to import? (number or 'all', default: all): `), resolve);
-      });
-      rl.close();
-      
-      // Process the answer
+      // Only show product ID option for products
       let importArgs: string[] = [];
-      if (answer && answer.trim() !== '' && answer.toLowerCase() !== 'all') {
-        const limit = parseInt(answer.trim());
-        if (!isNaN(limit) && limit > 0) {
-          importArgs = ['--limit', limit.toString()];
-          console.log(chalk.yellow(`Will import ${limit} ${selectedContentType} from the main language and their translations`));
+      
+      if (selectedContentType === "products") {
+        // Ask if user wants to import a specific product by ID
+        const rl1 = createPrompt();
+        const importTypeAnswer = await new Promise<string>((resolve) => {
+          rl1.question(chalk.cyan(`Import: [1] All products, [2] Limited number of products, [3] Specific product by ID: `), resolve);
+        });
+        rl1.close();
+        
+        if (importTypeAnswer === "3") {
+          // Import specific product by ID
+          const rl2 = createPrompt();
+          const productIdAnswer = await new Promise<string>((resolve) => {
+            rl2.question(chalk.cyan(`Enter product ID to import (with all its translations): `), resolve);
+          });
+          rl2.close();
+          
+          if (productIdAnswer && productIdAnswer.trim() !== '') {
+            importArgs = ['--product-id', productIdAnswer.trim()];
+            console.log(chalk.yellow(`Will import product with ID ${productIdAnswer.trim()} and all its translations`));
+          } else {
+            console.log(chalk.yellow(`No product ID provided. Will import all products.`));
+          }
+        } else if (importTypeAnswer === "2") {
+          // Import limited number of products
+          const rl3 = createPrompt();
+          const limitAnswer = await new Promise<string>((resolve) => {
+            rl3.question(chalk.cyan(`How many products to import? `), resolve);
+          });
+          rl3.close();
+          
+          const limit = parseInt(limitAnswer.trim());
+          if (!isNaN(limit) && limit > 0) {
+            importArgs = ['--limit', limit.toString()];
+            console.log(chalk.yellow(`Will import ${limit} products from the main language and their translations`));
+          } else {
+            console.log(chalk.yellow(`Invalid input. Will import all products.`));
+          }
         } else {
-          console.log(chalk.yellow(`Invalid input. Will import all ${selectedContentType}.`));
+          // Default: import all products
+          console.log(chalk.yellow(`Will import all products.`));
         }
       } else {
-        console.log(chalk.yellow(`Will import all ${selectedContentType}.`));
+        // For categories, keep the original behavior
+        const rl = createPrompt();
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(chalk.cyan(`How many ${selectedContentType} to import? (number or 'all', default: all): `), resolve);
+        });
+        rl.close();
+        
+        // Process the answer
+        if (answer && answer.trim() !== '' && answer.toLowerCase() !== 'all') {
+          const limit = parseInt(answer.trim());
+          if (!isNaN(limit) && limit > 0) {
+            importArgs = ['--limit', limit.toString()];
+            console.log(chalk.yellow(`Will import ${limit} ${selectedContentType} from the main language and their translations`));
+          } else {
+            console.log(chalk.yellow(`Invalid input. Will import all ${selectedContentType}.`));
+          }
+        } else {
+          console.log(chalk.yellow(`Will import all ${selectedContentType}.`));
+        }
       }
       
       await runScript(importScript, importArgs);
@@ -660,23 +705,73 @@ async function showOperationsMenu(): Promise<void> {
       process.exit(1);
     }
     
-    // Ask how many items to import
-    const rlLimit = createPrompt();
-    const limitAnswer = await new Promise<string>((resolve) => {
-      rlLimit.question(chalk.cyan(`\nHow many ${selectedContentType} to import? (Enter a number or 'all', default: all): `), resolve);
-    });
-    rlLimit.close();
+    let importArgs: string[] = [];
     
-    let limitFlag: string[] = [];
-    if (limitAnswer && limitAnswer.toLowerCase() !== 'all' && !isNaN(parseInt(limitAnswer))) {
-      const limit = parseInt(limitAnswer);
-      if (limit > 0) {
-        limitFlag = ["--limit", limit.toString()];
+    // For products, offer additional import options
+    if (selectedContentType === "products") {
+      // Ask what type of import the user wants
+      const rlImportType = createPrompt();
+      const importTypeAnswer = await new Promise<string>((resolve) => {
+        rlImportType.question(chalk.cyan(`\nImport options:\n1. All products\n2. Limited number of products\n3. Specific product by ID\nSelect an option (1-3): `), resolve);
+      });
+      rlImportType.close();
+      
+      if (importTypeAnswer === "3") {
+        // Import specific product by ID
+        const rlProductId = createPrompt();
+        const productIdAnswer = await new Promise<string>((resolve) => {
+          rlProductId.question(chalk.cyan(`\nEnter product ID to import (with all its translations): `), resolve);
+        });
+        rlProductId.close();
+        
+        if (productIdAnswer && productIdAnswer.trim() !== '') {
+          importArgs = ["--product-id", productIdAnswer.trim()];
+          console.log(chalk.yellow(`Will import product with ID ${productIdAnswer.trim()} and all its translations`));
+        } else {
+          console.log(chalk.yellow(`No product ID provided. Will import all products.`));
+        }
+      } else if (importTypeAnswer === "2") {
+        // Import limited number of products
+        const rlLimit = createPrompt();
+        const limitAnswer = await new Promise<string>((resolve) => {
+          rlLimit.question(chalk.cyan(`\nHow many products to import? `), resolve);
+        });
+        rlLimit.close();
+        
+        const limit = parseInt(limitAnswer.trim());
+        if (!isNaN(limit) && limit > 0) {
+          importArgs = ["--limit", limit.toString()];
+          console.log(chalk.yellow(`Will import ${limit} products from the main language and their translations`));
+        } else {
+          console.log(chalk.yellow(`Invalid input. Will import all products.`));
+        }
+      } else {
+        // Default: import all products
+        console.log(chalk.yellow(`Will import all products.`));
+      }
+    } else {
+      // For categories, keep the original behavior
+      const rlLimit = createPrompt();
+      const limitAnswer = await new Promise<string>((resolve) => {
+        rlLimit.question(chalk.cyan(`\nHow many ${selectedContentType} to import? (Enter a number or 'all', default: all): `), resolve);
+      });
+      rlLimit.close();
+      
+      if (limitAnswer && limitAnswer.toLowerCase() !== 'all' && !isNaN(parseInt(limitAnswer))) {
+        const limit = parseInt(limitAnswer);
+        if (limit > 0) {
+          importArgs = ["--limit", limit.toString()];
+          console.log(chalk.yellow(`Will import ${limit} ${selectedContentType} from the main language and their translations`));
+        } else {
+          console.log(chalk.yellow(`Invalid input. Will import all ${selectedContentType}.`));
+        }
+      } else {
+        console.log(chalk.yellow(`Will import all ${selectedContentType}.`));
       }
     }
     
     displayHeader(`Importing ${contentTypeName}`);
-    await runScript(scriptPath, [...limitFlag]);
+    await runScript(scriptPath, importArgs);
     console.log(chalk.green.bold(`✓ ${contentTypeName} import completed successfully!`));
     
     // Return to the operations menu after completion

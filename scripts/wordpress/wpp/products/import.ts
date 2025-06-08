@@ -48,22 +48,6 @@ if (!fs.existsSync(siteWebpImagesDir)) {
 // Track image ID mappings
 const imageMapping: Record<number, number> = {};
 
-// Command line options
-const forceImport = process.argv.includes("--force-import");
-const autoConfirm = process.argv.includes("--yes");
-const downloadImages = process.argv.includes("--download-images");
-const skipImageDownload = process.argv.includes("--skip-image-download");
-
-// Import limit option
-let importLimit: number | null = null;
-const limitIndex = process.argv.indexOf("--limit");
-if (limitIndex !== -1 && limitIndex < process.argv.length - 1) {
-  const limitValue = parseInt(process.argv[limitIndex + 1]);
-  if (!isNaN(limitValue) && limitValue > 0) {
-    importLimit = limitValue;
-  }
-}
-
 interface ExportData {
   meta: {
     exported_at: string;
@@ -105,8 +89,12 @@ const importStats = {
   }
 };
 
+// Global translation statistics
+let translationsSucceeded = 0;
+let translationsFailed = 0;
+
 // Map of original IDs to new IDs for translation linking
-const idMap: Record<string, Record<string, number>> = {};
+const idMap: Record<string, Record<number, number>> = {};
 
 /**
  * Create a translation relationship between products using WPML's dedicated endpoint
@@ -140,16 +128,25 @@ async function createProductTranslationRelationship(
     }
     
     // Use WPML's translation endpoint for products
-    await fetchJSON(
-      `${importSite.baseUrl}/wp-json/wpml/v1/product/translations`,
-      {
-        method: "POST",
-        body: JSON.stringify(translationData),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    console.log(chalk.dim(`Sending data to ${importSite.baseUrl}/wp-json/wpml/v1/product/translations`));
+    console.log(chalk.dim(`Request body: ${JSON.stringify(translationData, null, 2)}`));
+    
+    try {
+      const response = await fetchJSON(
+        `${importSite.baseUrl}/wp-json/wpml/v1/product/translations`,
+        {
+          method: "POST",
+          body: JSON.stringify(translationData),
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      
+      console.log(chalk.dim(`Response: ${JSON.stringify(response, null, 2)}`));
+    } catch (apiError) {
+      throw new Error(`WPML API error: ${apiError instanceof Error ? apiError.message : String(apiError)}`);
+    }
     
     console.log(chalk.green("✓ Successfully created product translation relationships"));
   } catch (error) {
@@ -160,10 +157,42 @@ async function createProductTranslationRelationship(
 }
 
 async function importProducts(): Promise<void> {
-  // Initialize translation statistics
-  let translationsProcessed = 0;
-  let translationsSucceeded = 0;
-  let translationsFailed = 0;
+  // Reset translation statistics
+  translationsSucceeded = 0;
+  translationsFailed = 0;
+  
+  // Command line options
+  const forceImport = process.argv.includes("--force-import");
+  const autoConfirm = process.argv.includes("--yes");
+  const downloadImages = process.argv.includes("--download-images");
+  const skipImageDownload = process.argv.includes("--skip-image-download");
+  
+  // Import limit option
+  let importLimit: number | null = null;
+  const limitIndex = process.argv.indexOf("--limit");
+  if (limitIndex !== -1 && limitIndex < process.argv.length - 1) {
+    const limitValue = parseInt(process.argv[limitIndex + 1]);
+    if (!isNaN(limitValue) && limitValue > 0) {
+      importLimit = limitValue;
+    }
+  }
+  
+  // Import specific product by ID option
+  let productId: string | null = null;
+  const productIdIndex = process.argv.indexOf("--product-id");
+  if (productIdIndex !== -1 && productIdIndex < process.argv.length - 1) {
+    productId = process.argv[productIdIndex + 1];
+    console.log(chalk.cyan(`🔍 Importing specific product with ID: ${productId}`));
+  }
+  
+  // Options object for passing to functions
+  const options = {
+    forceImport,
+    downloadImages,
+    skipImageDownload,
+    importLimit: importLimit || undefined,
+    productId
+  };
   // Get the export site URL to determine the site-specific directory
   const exportSite = getExportSite();
   const exportBaseUrl = exportSite.baseUrl;
@@ -216,9 +245,18 @@ async function importProducts(): Promise<void> {
   
   console.log(chalk.cyan(`📊 Found ${Object.values(data).flat().length} products in ${Object.keys(data).length} languages`));
   
-  // Apply import limit if specified
+  // Apply import limit or filter by product ID if specified
   let filteredData = data;
-  if (importLimit && importLimit > 0) {
+  
+  if (options.productId) {
+    // Filter data to only include the specified product ID and its translations
+    filteredData = filterProductById(data, translations, options.productId);
+    if (Object.values(filteredData).flat().length === 0) {
+      console.error(chalk.red(`Error: Product with ID ${options.productId} not found in the export data`));
+      process.exit(1);
+    }
+    console.log(chalk.cyan(`📊 Found ${Object.values(filteredData).flat().length} products (including translations) for ID: ${options.productId}`));
+  } else if (importLimit && importLimit > 0) {
     filteredData = limitImportData(data, translations, meta.main_language, meta.other_languages, importLimit);
   }
   
@@ -231,16 +269,16 @@ async function importProducts(): Promise<void> {
   console.log(chalk.yellow(`- IMPORT DATE: ${chalk.white(new Date().toLocaleString())}`));
   
   // Show image download settings
-  if (skipImageDownload) {
+  if (options.skipImageDownload) {
     console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will NOT download images')} (using --skip-image-download)`));
-  } else if (downloadImages) {
+  } else if (options.downloadImages) {
     console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download ALL images')} (using --download-images)`));
   } else {
     console.log(chalk.yellow(`- IMAGES: ${chalk.white('Will download only if not found locally')}`));
   }
   
   // Skip confirmation if force-import or yes flag is set
-  if (!forceImport && !autoConfirm) {
+  if (!options.forceImport && !autoConfirm) {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout
@@ -256,7 +294,7 @@ async function importProducts(): Promise<void> {
       return;
     }
   } else {
-    if (forceImport) {
+    if (options.forceImport) {
       console.log(chalk.dim("Skipping confirmation due to --force-import flag."));
     } else if (autoConfirm) {
       console.log(chalk.dim("Skipping confirmation due to --yes flag."));
@@ -273,112 +311,100 @@ async function importProducts(): Promise<void> {
     importStats.byLanguage[lang] = { total: 0, created: 0, skipped: 0, failed: 0 };
   }
 
-  // First pass: Import all products without setting translations
-  console.log(chalk.cyan("\n🔄 First pass: Importing products..."));
+  // Import products in a single pass with translations
+  console.log(chalk.cyan("\n🔄 Importing products with translations..."));
 
-  // Import main language first
+  // Import main language first to ensure translations can reference it
   const mainLang = meta.main_language;
   if (filteredData[mainLang] && filteredData[mainLang].length > 0) {
     console.log(chalk.cyan(`\n🌎 Importing ${filteredData[mainLang].length} products in main language: ${mainLang} ${getFlagEmoji(mainLang)}`));
-    await importProductsForLanguage(filteredData[mainLang], mainLang, exportData, mainLang);
+    await importProductsForLanguage(filteredData[mainLang], mainLang, exportData, mainLang, options);
   }
 
-  // Then import other languages
+  // Then import other languages with translation links
   for (const lang of meta.other_languages) {
     if (filteredData[lang] && filteredData[lang].length > 0) {
       console.log(chalk.cyan(`\n🌎 Importing ${filteredData[lang].length} products in language: ${lang} ${getFlagEmoji(lang)}`));
-      await importProductsForLanguage(filteredData[lang], lang, exportData, mainLang);
+      await importProductsForLanguage(filteredData[lang], lang, exportData, mainLang, options);
     }
   }
 
-  // Second pass: Set up translations
-  console.log(chalk.cyan("\n🔄 Second pass: Setting up translations..."));
-  
-  // Count how many translation groups we have
-  const translationGroups = Object.keys(translations.wpml).length;
-  console.log(chalk.cyan(`Found ${translationGroups} translation groups to process`));
-  
   // Print translation statistics
-  console.log("\nTranslations:");
-  console.log(
-    `- Translation relationships established via translation_of parameter during product creation`
-  );
-  console.log(
-    `- Additional translation relationships created via WPML endpoint for better compatibility`
-  );
-  console.log(chalk.cyan(`- Processed: ${translationsProcessed}`));
-  console.log(chalk.green(`- Succeeded: ${translationsSucceeded}`));
-
+  console.log(chalk.bold("\nTranslation Statistics:"));
+  console.log(chalk.cyan(`- Products with translations assigned: ${translationsSucceeded}`));
   if (translationsFailed > 0) {
-    console.log(chalk.red(`- Failed: ${translationsFailed}`));
+    console.log(chalk.red(`- Failed translation assignments: ${translationsFailed}`));
   }
+  console.log(chalk.cyan(`\nTranslation method used:`));
+  console.log(chalk.dim(`- Direct translation_of parameter during product creation`));
+}
 
-  // Print import statistics
-  console.log(chalk.bold("\nImport Statistics:"));
-
-  for (const [slug, langMap] of Object.entries(translations.wpml) as [string, Record<string, number>][]) {
-      translationsProcessed++;
-    try {
-      // Check if we have mapped IDs for at least two languages in this group
-      const mappedLangs = Object.keys(langMap).filter(lang => 
-        idMap[lang] && idMap[lang][langMap[lang]]
-      );
-      
-      if (mappedLangs.length < 2) {
-        // Not enough products were imported to create a translation relationship
-        continue;
-      }
-      
-      // Create a translation relationship
-      const translationData: Record<string, number> = {};
-      
-      for (const lang of mappedLangs) {
-        if (typeof lang === 'string' && langMap[lang] !== undefined) {
-          const originalId = langMap[lang];
-          if (idMap[lang] && idMap[lang][originalId] !== undefined) {
-            const newId = idMap[lang][originalId];
-            
-            if (newId) {
-              translationData[lang] = newId;
-            }
+/**
+ * Filter the import data to only include a specific product ID and its translations
+ */
+function filterProductById(
+  data: Record<string, any[]>,
+  translations: any,
+  productId: string
+): Record<string, any[]> {
+  const result: Record<string, any[]> = {};
+  let foundProduct: any = null;
+  let foundLanguage: string | null = null;
+  
+  // First, find the product with the specified ID in any language
+  for (const [lang, products] of Object.entries(data)) {
+    const product = products.find(p => p.id.toString() === productId);
+    if (product) {
+      foundProduct = product;
+      foundLanguage = lang;
+      // Initialize the result with an empty array for this language
+      result[lang] = [product];
+      break;
+    }
+  }
+  
+  // If product not found, return empty result
+  if (!foundProduct || !foundLanguage) {
+    return result;
+  }
+  
+  // Now find all translations of this product
+  if (foundProduct.translations) {
+    for (const [lang, translatedIdValue] of Object.entries(foundProduct.translations)) {
+      if (lang !== foundLanguage && data[lang]) {
+        // Ensure translatedId is converted to string for comparison
+        const translatedId = String(translatedIdValue);
+        const translatedProduct = data[lang].find(p => p.id.toString() === translatedId);
+        if (translatedProduct) {
+          // Initialize the result array for this language if it doesn't exist
+          if (!result[lang]) {
+            result[lang] = [];
           }
+          result[lang].push(translatedProduct);
         }
       }
-      
-      if (Object.keys(translationData).length >= 2) {
-        await createProductTranslationRelationship(translationData, mainLang);
-        translationsSucceeded++;
-      }
-      
-      translationsProcessed++;
-      
-      // Show progress every 10 translation groups
-      if (translationsProcessed % 10 === 0) {
-        console.log(chalk.dim(`Processed ${translationsProcessed}/${translationGroups} translation groups...`));
-      }
-    } catch (error) {
-      console.error(chalk.red(`Error setting up translation for group ${slug}:`), error);
-      translationsFailed++;
     }
   }
   
-  // Print translation statistics
-  console.log("\nTranslations:");
-  console.log(
-    `- Translation relationships established via translation_of parameter during product creation`
-  );
-  console.log(
-    `- Additional translation relationships created via WPML endpoint for better compatibility`
-  );
-  console.log(chalk.cyan(`- Processed: ${translationsProcessed}`));
-  console.log(chalk.green(`- Succeeded: ${translationsSucceeded}`));
-  console.log(chalk.red(`- Failed: ${translationsFailed}`));
+  return result;
 }
 
 /**
  * Import products for a specific language
  */
-async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData, mainLanguage?: string): Promise<void> {
+async function importProductsForLanguage(
+  products: any[], 
+  lang: string, 
+  exportData: ExportData, 
+  mainLanguage?: string,
+  options?: {
+    forceImport?: boolean;
+    downloadImages?: boolean;
+    skipImageDownload?: boolean;
+    importLimit?: number | null;
+    productId?: string | null;
+  }
+): Promise<void> {
   for (const product of products) {
     try {
       importStats.total++;
@@ -404,15 +430,35 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
       
       // Skip if product exists and skipExisting is true
       const skipExisting = true;
-      if (existingProduct && skipExisting && !forceImport) {
-        console.log(chalk.yellow(`  Skipping existing product: ${product.name} (ID: ${existingProduct.id})`));
-        importStats.skipped++;
-        importStats.byLanguage[lang].skipped++;
-        continue;
+      if (existingProduct && skipExisting && !options?.forceImport) {
+        // Check if this is a translation with the same slug as another language product
+        let isTranslation = false;
+        
+        if (mainLanguage && lang !== mainLanguage && product.translations) {
+          // This is a translation product, check if it's actually a different product than the one we found
+          const mainLangId = product.translations[mainLanguage];
+          if (mainLangId && idMap[mainLanguage] && idMap[mainLanguage][mainLangId]) {
+            // This is a valid translation, don't skip it even if slug matches
+            isTranslation = true;
+            console.log(chalk.blue(`  Found product with same slug but in different language. Will create as translation.`));
+          }
+        }
+        
+        if (!isTranslation) {
+          console.log(chalk.yellow(`  Skipping existing product: ${product.name} (ID: ${existingProduct.id})`));
+          importStats.skipped++;
+          importStats.byLanguage[lang].skipped++;
+          
+          // Store the ID mapping even for skipped products to ensure translations work
+          if (!idMap[lang]) idMap[lang] = {};
+          idMap[lang][product.id] = existingProduct.id;
+          continue;
+        }
       }
       
       // Get the main language slug for image naming if this is a translation
       let mainLanguageSlug = product.slug;
+      let mainLangProductId = null;
       
       // If this is a translation, try to find the original product in the main language
       if (lang !== exportData.meta.main_language && product.translations) {
@@ -424,18 +470,30 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
           );
           if (mainLangProduct) {
             mainLanguageSlug = mainLangProduct.slug;
+            mainLangProductId = mainLangId;
+            console.log(chalk.cyan(`  Found main language product: ${mainLangProduct.name} (ID: ${mainLangId})`));
           }
         }
       }
       
       // Prepare product data for import
-      const productData = await prepareProductData(product, lang, mainLanguageSlug);
+      const productData = await prepareProductData(product, lang, mainLanguageSlug, options);
       
       // If this is a translation and we have the main language ID mapping, set translation_of
-      if (mainLanguage && lang !== mainLanguage && product.translations && product.translations[mainLanguage]) {
+      if (mainLanguage && lang !== mainLanguage && product.translations) {
+        // Get the ID of the main language product from the translations field
         const mainLangId = product.translations[mainLanguage];
-        if (mainLangId && idMap[mainLanguage] && idMap[mainLanguage][mainLangId]) {
-          productData.translation_of = idMap[mainLanguage][mainLangId];
+        
+        if (mainLangId) {
+          // Check if we have already imported this main language product
+          if (idMap[mainLanguage] && idMap[mainLanguage][mainLangId]) {
+            productData.translation_of = idMap[mainLanguage][mainLangId];
+            console.log(chalk.cyan(`  Setting translation_of: ${productData.translation_of} (original ID: ${mainLangId})`));
+            translationsSucceeded++;
+          } else {
+            console.log(chalk.yellow(`  ⚠️ Main language product ID ${mainLangId} not yet imported, cannot set translation_of`));
+            translationsFailed++;
+          }
         }
       }
       
@@ -448,7 +506,7 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
       
       // Log translation relationship if applicable
       if (productData.translation_of) {
-        console.log(`  Set as translation of product ID: ${productData.translation_of}`);
+        console.log(chalk.green(`  ✓ Set as translation of product ID: ${productData.translation_of}`));
       }
       
       console.log(chalk.green(`✓ Imported product: ${product.name} (ID: ${importedProduct.id})`));
@@ -466,9 +524,17 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
 }
 
 /**
- * Prepare product data for import
+ * Prepare product data for import by downloading images and formatting data
  */
-async function prepareProductData(product: any, lang: string, mainLanguageSlug?: string): Promise<any> {
+async function prepareProductData(
+  product: any, 
+  lang: string, 
+  mainLanguageSlug?: string,
+  options?: {
+    downloadImages?: boolean;
+    skipImageDownload?: boolean;
+  }
+): Promise<any> {
   // Create a clean copy of the product data
   const cleanProduct = { ...product };
   
@@ -484,14 +550,38 @@ async function prepareProductData(product: any, lang: string, mainLanguageSlug?:
   // Process images if present
   if (cleanProduct.images && Array.isArray(cleanProduct.images) && cleanProduct.images.length > 0) {
     const processedImages: {id: number}[] = [];
+    const mainLang = getExportSite().mainLanguage;
     
+    // For non-default languages, check if we should reuse images from the default language
+    if (lang !== mainLang && mainLanguageSlug && product.translations && product.translations[mainLang]) {
+      // Try to find the main language product's images that have already been imported
+      const mainLangId = product.translations[mainLang];
+      if (mainLangId && idMap[mainLang] && idMap[mainLang][mainLangId]) {
+        const importedMainLangId = idMap[mainLang][mainLangId];
+        
+        // Try to get the imported main language product to reuse its images
+        try {
+          const importedMainProduct = await fetchProduct(importedMainLangId, mainLang);
+          if (importedMainProduct && importedMainProduct.images && importedMainProduct.images.length > 0) {
+            console.log(chalk.cyan(`Reusing ${importedMainProduct.images.length} images from main language product ID: ${importedMainLangId}`));
+            cleanProduct.images = importedMainProduct.images;
+            return cleanProduct;
+          }
+        } catch (error) {
+          console.log(chalk.yellow(`⚠️ Could not fetch main language product for image reuse: ${error instanceof Error ? error.message : String(error)}`));
+          // Continue with normal image processing if we can't reuse
+        }
+      }
+    }
+    
+    // Process images normally for main language or if reusing failed
     for (let i = 0; i < cleanProduct.images.length; i++) {
       try {
         const image = cleanProduct.images[i];
         // Use product slug for image filename (from main language if available)
         const slugToUse = mainLanguageSlug || product.slug;
         // Pass the image index for sequential numbering
-        const newImageId = await processImage(image, slugToUse, i);
+        const newImageId = await processImage(image, slugToUse, i, options);
         
         if (newImageId) {
           processedImages.push({ id: newImageId });
@@ -522,13 +612,28 @@ async function findProductBySku(sku: string, lang: string): Promise<any | null> 
 }
 
 async function findProductBySlug(slug: string, lang: string): Promise<any | null> {
+  const importSite = getImportSite();
   try {
-    const importSite = getImportSite();
-    const url = `${importSite.baseUrl}/wp-json/wc/v3/products?slug=${encodeURIComponent(slug)}&lang=${lang}`;
-    const products = await fetchJSON(url);
-    
-    return products.length > 0 ? products[0] : null;
+    const response = await fetchJSON(`${importSite.baseUrl}/wp-json/wc/v3/products?slug=${slug}&lang=${lang}`);
+    if (Array.isArray(response) && response.length > 0) {
+      return response[0];
+    }
+    return null;
   } catch (error) {
+    console.error(`Error finding product by slug ${slug}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Fetch a product by its ID
+ */
+async function fetchProduct(id: number, lang: string): Promise<any | null> {
+  const importSite = getImportSite();
+  try {
+    return await fetchJSON(`${importSite.baseUrl}/wp-json/wc/v3/products/${id}?lang=${lang}`);
+  } catch (error) {
+    console.error(`Error fetching product ID ${id}:`, error);
     return null;
   }
 }
@@ -544,16 +649,47 @@ async function createProduct(productData: any, lang: string): Promise<any> {
   const cleanProductData = { ...productData };
   delete cleanProductData.lang;
   
-  console.log(`Creating product in language: ${lang}`);
-  console.log(`Product data: ${JSON.stringify(cleanProductData).substring(0, 200)}...`);
+  // Log translation relationship if applicable
+  if (cleanProductData.translation_of) {
+    console.log(chalk.cyan(`Setting translation_of: ${cleanProductData.translation_of} for product in ${lang}`));
+  }
   
-  return await fetchJSON(url, {
-    method: "POST",
-    body: JSON.stringify(cleanProductData),
-    headers: {
-      "Content-Type": "application/json"
+  console.log(`Creating product in language: ${lang}`);
+  
+  // Only log a portion of the product data to avoid console clutter
+  const productDataPreview = { 
+    ...cleanProductData,
+    description: cleanProductData.description ? '(truncated)' : undefined,
+    short_description: cleanProductData.short_description ? '(truncated)' : undefined
+  };
+  console.log(`Product data: ${JSON.stringify(productDataPreview, null, 2).substring(0, 300)}...`);
+  
+  try {
+    const response = await fetchJSON(url, {
+      method: "POST",
+      body: JSON.stringify(cleanProductData),
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+    
+    // Check if the response contains the expected translation data
+    if (cleanProductData.translation_of && response.id) {
+      console.log(chalk.green(`✓ Product created with ID ${response.id} as translation of ${cleanProductData.translation_of}`));
+      
+      // Verify translation relationship was set
+      if (response.translations) {
+        console.log(chalk.green(`✓ Translation data in response: ${JSON.stringify(response.translations)}`));
+      } else {
+        console.log(chalk.yellow(`⚠️ No translation data in response. May need second pass to link.`));
+      }
     }
-  });
+    
+    return response;
+  } catch (error) {
+    console.error(chalk.red(`✗ Error creating product: ${error instanceof Error ? error.message : String(error)}`));
+    throw error;
+  }
 }
 
 async function createTranslationRelationship(translationData: Record<string, number>): Promise<void> {
@@ -569,10 +705,13 @@ async function createTranslationRelationship(translationData: Record<string, num
 /**
  * Download an image from a URL
  */
-async function downloadImage(imageUrl: string, fileName: string): Promise<string> {
+async function downloadImage(imageUrl: string, fileName: string, options?: {
+  downloadImages?: boolean;
+  skipImageDownload?: boolean;
+}): Promise<string> {
   try {
     // If --skip-image-download is set, don't download images
-    if (skipImageDownload) {
+    if (options?.skipImageDownload) {
       console.log(`  Skipping image download (--skip-image-download): ${fileName}`);
       return "";
     }
@@ -592,7 +731,7 @@ async function downloadImage(imageUrl: string, fileName: string): Promise<string
     }
     
     // If not found in either directory and not using --download-images, skip download unless forced
-    if (!downloadImages) {
+    if (!options?.downloadImages) {
       // Only download if explicitly requested or if no local copy exists
       console.log(`  Image not found locally, downloading: ${fileName}`);
     }
@@ -830,8 +969,17 @@ async function uploadImageAlternative(
  * @param image - The image object to process
  * @param productSlug - The slug of the product
  * @param imageIndex - The index of the image in the product's image array (for numbering)
+ * @param options - Options for image processing
  */
-async function processImage(image: any, productSlug?: string, imageIndex: number = 0): Promise<number | null> {
+async function processImage(
+  image: any, 
+  productSlug?: string, 
+  imageIndex: number = 0,
+  options?: {
+    downloadImages?: boolean;
+    skipImageDownload?: boolean;
+  }
+): Promise<number | null> {
   try {
     if (!image || !image.src) {
       console.log("  No image source provided");
@@ -914,7 +1062,7 @@ async function processImage(image: any, productSlug?: string, imageIndex: number
       finalImageName = regularImageName;
     }
     // Fifth priority: Download if allowed
-    else if (!skipImageDownload) {
+    else if (!options?.skipImageDownload) {
       if (productSlug) {
         console.log(`  Downloading image for product: ${productSlug}`);
       } else {
@@ -923,7 +1071,7 @@ async function processImage(image: any, productSlug?: string, imageIndex: number
       
       // Download the image with proper naming
       const downloadName = productSlug ? regularImageName : imageName;
-      imageToUpload = await downloadImage(image.src, downloadName);
+      imageToUpload = await downloadImage(image.src, downloadName, options);
       finalImageName = downloadName;
     }
     // Skip if no image available and downloads not allowed
@@ -932,7 +1080,7 @@ async function processImage(image: any, productSlug?: string, imageIndex: number
       return null;
     }
 
-    // Upload the image
+    // If image is already downloaded, use it
     if (imageToUpload) {
       const newImageId = await uploadImage(imageToUpload, finalImageName);
       importStats.images.uploaded++;
