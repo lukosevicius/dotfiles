@@ -1,6 +1,7 @@
 /**
  * Delete command router script
  * Routes to the appropriate delete script based on content type
+ * Supports --confirm, --delete-images, and --thorough-cleanup flags
  */
 import fs from "fs";
 import path from "path";

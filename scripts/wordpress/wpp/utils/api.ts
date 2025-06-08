@@ -14,8 +14,9 @@ import {
 /**
  * Fetch JSON data from a URL with authentication
  * Handles both import and export authentication based on the URL
+ * Includes retry logic for handling connection errors
  */
-export async function fetchJSON(url: string, options: any = {}): Promise<any> {
+export async function fetchJSON(url: string, options: any = {}, retries = 3, delay = 1000): Promise<any> {
   // Determine if this is an export or import request based on the URL
   const exportBaseUrl = getExportBaseUrl();
   const importBaseUrl = getImportBaseUrl();
@@ -75,7 +76,26 @@ export async function fetchJSON(url: string, options: any = {}): Promise<any> {
     }
     
     return responseData;
-  } catch (error) {
+  } catch (error: any) {
+    // Check if we should retry (connection errors like ECONNRESET, socket hang up, etc.)
+    const isConnectionError = error.message && (
+      error.message.includes('ECONNRESET') ||
+      error.message.includes('socket hang up') ||
+      error.message.includes('network timeout') ||
+      error.message.includes('connection refused')
+    );
+    
+    // Retry for connection errors if we have retries left
+    if (isConnectionError && retries > 0) {
+      console.log(`\x1b[33m⚠️ Connection error: ${error.message}. Retrying... (${retries} attempts left)\x1b[0m`);
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Retry with one less retry attempt and increased delay
+      return fetchJSON(url, options, retries - 1, delay * 1.5);
+    }
+    
     throw error;
   }
 }
