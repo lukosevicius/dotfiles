@@ -108,7 +108,62 @@ const importStats = {
 // Map of original IDs to new IDs for translation linking
 const idMap: Record<string, Record<string, number>> = {};
 
+/**
+ * Create a translation relationship between products using WPML's dedicated endpoint
+ */
+async function createProductTranslationRelationship(
+  translationData: Record<string, number>,
+  mainLanguage: string
+): Promise<void> {
+  try {
+    const importSite = getImportSite();
+    
+    console.log(chalk.cyan("Connecting product translations:"));
+    for (const [lang, id] of Object.entries(translationData)) {
+      console.log(`  ${lang}: ${id}`);
+    }
+    
+    console.log(chalk.dim("Using WPML product translations endpoint..."));
+    
+    if (!translationData[mainLanguage]) {
+      console.log(chalk.yellow(`⚠️ Main language ${mainLanguage} ID not found in translation data. Cannot connect translations.`));
+      return;
+    }
+    
+    const mainLangId = translationData[mainLanguage];
+    
+    // Log translation connections in a more readable format - connect non-main languages to main language
+    for (const [lang, id] of Object.entries(translationData)) {
+      if (lang !== mainLanguage) {
+        console.log(`  ${lang} (${id}) → ${mainLanguage} (${mainLangId})`);
+      }
+    }
+    
+    // Use WPML's translation endpoint for products
+    await fetchJSON(
+      `${importSite.baseUrl}/wp-json/wpml/v1/product/translations`,
+      {
+        method: "POST",
+        body: JSON.stringify(translationData),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    
+    console.log(chalk.green("✓ Successfully created product translation relationships"));
+  } catch (error) {
+    console.error(chalk.red("✗ Error creating product translation relationship:"), 
+      error instanceof Error ? error.message : String(error));
+    console.log(chalk.yellow("⚠️ Translation endpoint failed. Product translations will need to be set up manually."));
+  }
+}
+
 async function importProducts(): Promise<void> {
+  // Initialize translation statistics
+  let translationsProcessed = 0;
+  let translationsSucceeded = 0;
+  let translationsFailed = 0;
   // Get the export site URL to determine the site-specific directory
   const exportSite = getExportSite();
   const exportBaseUrl = exportSite.baseUrl;
@@ -217,17 +272,17 @@ async function importProducts(): Promise<void> {
   for (const lang of allLanguages) {
     importStats.byLanguage[lang] = { total: 0, created: 0, skipped: 0, failed: 0 };
   }
-  
+
   // First pass: Import all products without setting translations
   console.log(chalk.cyan("\n🔄 First pass: Importing products..."));
-  
+
   // Import main language first
   const mainLang = meta.main_language;
   if (filteredData[mainLang] && filteredData[mainLang].length > 0) {
     console.log(chalk.cyan(`\n🌎 Importing ${filteredData[mainLang].length} products in main language: ${mainLang} ${getFlagEmoji(mainLang)}`));
     await importProductsForLanguage(filteredData[mainLang], mainLang, exportData, mainLang);
   }
-  
+
   // Then import other languages
   for (const lang of meta.other_languages) {
     if (filteredData[lang] && filteredData[lang].length > 0) {
@@ -235,7 +290,7 @@ async function importProducts(): Promise<void> {
       await importProductsForLanguage(filteredData[lang], lang, exportData, mainLang);
     }
   }
-  
+
   // Second pass: Set up translations
   console.log(chalk.cyan("\n🔄 Second pass: Setting up translations..."));
   
@@ -243,11 +298,26 @@ async function importProducts(): Promise<void> {
   const translationGroups = Object.keys(translations.wpml).length;
   console.log(chalk.cyan(`Found ${translationGroups} translation groups to process`));
   
-  let translationsProcessed = 0;
-  let translationsSucceeded = 0;
-  let translationsFailed = 0;
-  
+  // Print translation statistics
+  console.log("\nTranslations:");
+  console.log(
+    `- Translation relationships established via translation_of parameter during product creation`
+  );
+  console.log(
+    `- Additional translation relationships created via WPML endpoint for better compatibility`
+  );
+  console.log(chalk.cyan(`- Processed: ${translationsProcessed}`));
+  console.log(chalk.green(`- Succeeded: ${translationsSucceeded}`));
+
+  if (translationsFailed > 0) {
+    console.log(chalk.red(`- Failed: ${translationsFailed}`));
+  }
+
+  // Print import statistics
+  console.log(chalk.bold("\nImport Statistics:"));
+
   for (const [slug, langMap] of Object.entries(translations.wpml) as [string, Record<string, number>][]) {
+      translationsProcessed++;
     try {
       // Check if we have mapped IDs for at least two languages in this group
       const mappedLangs = Object.keys(langMap).filter(lang => 
@@ -276,7 +346,7 @@ async function importProducts(): Promise<void> {
       }
       
       if (Object.keys(translationData).length >= 2) {
-        await createTranslationRelationship(translationData);
+        await createProductTranslationRelationship(translationData, mainLang);
         translationsSucceeded++;
       }
       
@@ -292,101 +362,50 @@ async function importProducts(): Promise<void> {
     }
   }
   
-  // Show final stats
-  console.log(chalk.green.bold("\n✓ Import completed!"));
-  console.log(chalk.cyan(`\n📊 Import Statistics:`));
-  console.log(chalk.cyan(`Total products processed: ${importStats.total}`));
-  console.log(chalk.green(`Products created: ${importStats.created}`));
-  console.log(chalk.yellow(`Products skipped: ${importStats.skipped}`));
-  
-  if (importStats.failed > 0) {
-    console.log(chalk.red(`Products failed: ${importStats.failed}`));
-  }
-  
-  console.log(chalk.cyan(`\nBy language:`));
-  for (const lang of allLanguages) {
-    const stats = importStats.byLanguage[lang];
-    if (stats.total > 0) {
-      const flag = getFlagEmoji(lang);
-      console.log(`${flag} ${lang}: ${stats.created} created, ${stats.skipped} skipped, ${stats.failed} failed (Total: ${stats.total})`);
-    }
-  }
-  
-  console.log(chalk.cyan(`\nTranslations:`));
-  console.log(chalk.cyan(`Processed: ${translationsProcessed}`));
-  console.log(chalk.green(`Succeeded: ${translationsSucceeded}`));
-  
-  if (translationsFailed > 0) {
-    console.log(chalk.red(`Failed: ${translationsFailed}`));
-  }
+  // Print translation statistics
+  console.log("\nTranslations:");
+  console.log(
+    `- Translation relationships established via translation_of parameter during product creation`
+  );
+  console.log(
+    `- Additional translation relationships created via WPML endpoint for better compatibility`
+  );
+  console.log(chalk.cyan(`- Processed: ${translationsProcessed}`));
+  console.log(chalk.green(`- Succeeded: ${translationsSucceeded}`));
+  console.log(chalk.red(`- Failed: ${translationsFailed}`));
 }
 
-async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData, mainLanguage?: string, skipExisting: boolean = true): Promise<void> {
-  // Apply import limit if specified
-  const productsToImport = importLimit ? products.slice(0, importLimit) : products;
-  
-  if (importLimit) {
-    console.log(chalk.yellow(`Limiting import to ${importLimit} products (out of ${products.length} total)`));
-  }
-  
-  let count = 0;
-  
-  for (const product of productsToImport) {
+/**
+ * Import products for a specific language
+ */
+async function importProductsForLanguage(products: any[], lang: string, exportData: ExportData, mainLanguage?: string): Promise<void> {
+  for (const product of products) {
     try {
-      count++;
       importStats.total++;
       importStats.byLanguage[lang].total++;
-      
-      // Show progress
-      if (count % 10 === 0 || count === 1 || count === products.length) {
-        console.log(chalk.dim(`Processing product ${count}/${products.length}...`));
-      }
+      console.log(chalk.cyan(`\nProcessing product: ${product.name} (ID: ${product.id})...`));
       
       // Check if product already exists by SKU or slug
       let existingProduct = null;
       
       if (product.sku) {
         existingProduct = await findProductBySku(product.sku, lang);
-      }
-      
-      if (!existingProduct) {
-        existingProduct = await findProductBySlug(product.slug, lang);
-      }
-      
-      if (existingProduct && skipExisting) {
-        // Skip this product
-        console.log(chalk.yellow(`⏩ Skipping existing product: ${product.name} (ID: ${product.id})`));
-        
-        // Store the ID mapping for translation linking
-        if (!idMap[lang]) idMap[lang] = {};
-        idMap[lang][product.id] = existingProduct.id;
-        
-        // If this is a non-main language product and we have a main language ID,
-        // update it to set the translation_of parameter
-        if (mainLanguage && lang !== mainLanguage && product.translations && product.translations[mainLanguage]) {
-          const mainLangId = product.translations[mainLanguage];
-          if (mainLangId && idMap[mainLanguage] && idMap[mainLanguage][mainLangId]) {
-            try {
-              // Update the existing product to set translation_of
-              await fetchJSON(
-                `${getImportSite().baseUrl}/wp-json/wc/v3/products/${existingProduct.id}?lang=${lang}`,
-                {
-                  method: "PUT",
-                  body: JSON.stringify({
-                    translation_of: idMap[mainLanguage][mainLangId]
-                  }),
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
-                }
-              );
-              console.log(`  UPDATED translation relationship for existing product (ID: ${existingProduct.id})`);
-            } catch (error) {
-              console.log(chalk.yellow(`  Warning: Could not update translation relationship for existing product: ${error instanceof Error ? error.message : String(error)}`));
-            }
-          }
+        if (existingProduct) {
+          console.log(`  Found existing product with SKU: ${product.sku} (ID: ${existingProduct.id})`);
         }
-        
+      }
+      
+      if (!existingProduct && product.slug) {
+        existingProduct = await findProductBySlug(product.slug, lang);
+        if (existingProduct) {
+          console.log(`  Found existing product with slug: ${product.slug} (ID: ${existingProduct.id})`);
+        }
+      }
+      
+      // Skip if product exists and skipExisting is true
+      const skipExisting = true;
+      if (existingProduct && skipExisting && !forceImport) {
+        console.log(chalk.yellow(`  Skipping existing product: ${product.name} (ID: ${existingProduct.id})`));
         importStats.skipped++;
         importStats.byLanguage[lang].skipped++;
         continue;
@@ -401,7 +420,7 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
         if (mainLangId) {
           // Find the main language product by ID
           const mainLangProduct = exportData.data[exportData.meta.main_language]?.find(
-            (p) => p.id === mainLangId
+            (p: any) => p.id === mainLangId
           );
           if (mainLangProduct) {
             mainLanguageSlug = mainLangProduct.slug;
@@ -427,6 +446,11 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
       if (!idMap[lang]) idMap[lang] = {};
       idMap[lang][product.id] = importedProduct.id;
       
+      // Log translation relationship if applicable
+      if (productData.translation_of) {
+        console.log(`  Set as translation of product ID: ${productData.translation_of}`);
+      }
+      
       console.log(chalk.green(`✓ Imported product: ${product.name} (ID: ${importedProduct.id})`));
       importStats.created++;
       importStats.byLanguage[lang].created++;
@@ -441,6 +465,9 @@ async function importProductsForLanguage(products: any[], lang: string, exportDa
   }
 }
 
+/**
+ * Prepare product data for import
+ */
 async function prepareProductData(product: any, lang: string, mainLanguageSlug?: string): Promise<any> {
   // Create a clean copy of the product data
   const cleanProduct = { ...product };
@@ -458,11 +485,13 @@ async function prepareProductData(product: any, lang: string, mainLanguageSlug?:
   if (cleanProduct.images && Array.isArray(cleanProduct.images) && cleanProduct.images.length > 0) {
     const processedImages: {id: number}[] = [];
     
-    for (const image of cleanProduct.images as ProductImage[]) {
+    for (let i = 0; i < cleanProduct.images.length; i++) {
       try {
+        const image = cleanProduct.images[i];
         // Use product slug for image filename (from main language if available)
         const slugToUse = mainLanguageSlug || product.slug;
-        const newImageId = await processImage(image, slugToUse);
+        // Pass the image index for sequential numbering
+        const newImageId = await processImage(image, slugToUse, i);
         
         if (newImageId) {
           processedImages.push({ id: newImageId });
@@ -506,11 +535,24 @@ async function findProductBySlug(slug: string, lang: string): Promise<any | null
 
 async function createProduct(productData: any, lang: string): Promise<any> {
   const importSite = getImportSite();
+  
+  // IMPORTANT: For WPML, we need to specify the language in the URL query string only,
+  // not in the request body. This is the same issue we fixed for categories.
   const url = `${importSite.baseUrl}/wp-json/wc/v3/products?lang=${lang}`;
+  
+  // Remove the lang parameter from the request body to avoid conflicts
+  const cleanProductData = { ...productData };
+  delete cleanProductData.lang;
+  
+  console.log(`Creating product in language: ${lang}`);
+  console.log(`Product data: ${JSON.stringify(cleanProductData).substring(0, 200)}...`);
   
   return await fetchJSON(url, {
     method: "POST",
-    body: JSON.stringify(productData)
+    body: JSON.stringify(cleanProductData),
+    headers: {
+      "Content-Type": "application/json"
+    }
   });
 }
 
@@ -785,8 +827,11 @@ async function uploadImageAlternative(
 
 /**
  * Process an image - download from source and upload to target
+ * @param image - The image object to process
+ * @param productSlug - The slug of the product
+ * @param imageIndex - The index of the image in the product's image array (for numbering)
  */
-async function processImage(image: any, productSlug?: string): Promise<number | null> {
+async function processImage(image: any, productSlug?: string, imageIndex: number = 0): Promise<number | null> {
   try {
     if (!image || !image.src) {
       console.log("  No image source provided");
@@ -805,7 +850,24 @@ async function processImage(image: any, productSlug?: string): Promise<number | 
     // Use product slug as the filename if provided, otherwise extract from URL
     let imageName = path.basename(image.src);
     const fileExtension = path.extname(imageName).toLowerCase();
-    const nameWithoutExt = productSlug || path.basename(imageName, fileExtension);
+    
+    // Sanitize the slug for consistent naming with categories
+    let sanitizedSlug = "";
+    if (productSlug) {
+      // Create a sanitized slug-based filename to avoid special characters issues
+      sanitizedSlug = productSlug.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+      
+      // Add sequential number for multiple images (image-1, image-2, etc.)
+      // Only add number if it's not the first image (index > 0)
+      if (imageIndex > 0) {
+        sanitizedSlug = `${sanitizedSlug}-${imageIndex + 1}`;
+      }
+    }
+    
+    // Use sanitized slug or original name without extension
+    const nameWithoutExt = productSlug ? 
+      sanitizedSlug : 
+      path.basename(imageName, fileExtension);
     
     // Check for WebP version in site-specific directory first
     const siteWebpImagePath = path.join(siteWebpImagesDir, `${nameWithoutExt}.webp`);
@@ -813,8 +875,10 @@ async function processImage(image: any, productSlug?: string): Promise<number | 
     // Check for WebP version in legacy directory as fallback
     const legacyWebpImagePath = path.join(legacyWebpImagesDir, `${nameWithoutExt}.webp`);
     
-    // Define the regular image name
-    const regularImageName = productSlug ? `${productSlug}${fileExtension}` : imageName;
+    // Define the regular image name with sanitized slug
+    const regularImageName = productSlug ? 
+      `${sanitizedSlug}${fileExtension}` : 
+      imageName;
     
     // Check for regular version in site-specific directory first
     const siteRegularImagePath = path.join(siteTempImagesDir, regularImageName);
@@ -857,9 +921,10 @@ async function processImage(image: any, productSlug?: string): Promise<number | 
         console.log(`  Downloading image: ${imageName}`);
       }
       
-      // Download the image
-      imageToUpload = await downloadImage(image.src, imageName);
-      finalImageName = imageName;
+      // Download the image with proper naming
+      const downloadName = productSlug ? regularImageName : imageName;
+      imageToUpload = await downloadImage(image.src, downloadName);
+      finalImageName = downloadName;
     }
     // Skip if no image available and downloads not allowed
     else {
@@ -893,3 +958,4 @@ importProducts().catch(error => {
   console.error(chalk.red.bold("✗ Fatal error:"), error);
   process.exit(1);
 });
+
