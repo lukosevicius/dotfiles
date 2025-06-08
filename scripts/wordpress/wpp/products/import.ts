@@ -857,10 +857,10 @@ async function processImage(image: any, productSlug?: string, imageIndex: number
       // Create a sanitized slug-based filename to avoid special characters issues
       sanitizedSlug = productSlug.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
       
-      // Add sequential number for multiple images (image-1, image-2, etc.)
-      // Only add number if it's not the first image (index > 0)
+      // Add sequential number for multiple images with v prefix (image.webp, image-v2.webp, image-v3.webp, etc.)
+      // Only add version number if it's not the first image (index > 0)
       if (imageIndex > 0) {
-        sanitizedSlug = `${sanitizedSlug}-${imageIndex + 1}`;
+        sanitizedSlug = `${sanitizedSlug}-v${imageIndex + 1}`;
       }
     }
     
