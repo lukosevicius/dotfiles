@@ -20,6 +20,9 @@ let deleteImagesConfirmed = false;
 const thoroughCleanup = process.argv.includes("--thorough-cleanup");
 let thoroughCleanupConfirmed = false;
 
+// Keep track of already deleted product IDs to avoid duplicate deletions
+const deletedProductIds = new Set<number>();
+
 async function deleteAllProducts(): Promise<void> {
   // Get site name first
   console.log(chalk.cyan(`🔄 Connecting to: ${getImportBaseUrl()}`));
@@ -113,32 +116,32 @@ async function deleteAllProducts(): Promise<void> {
       }
     }
     
-    // First, get all products
-    console.log(chalk.cyan("📋 Fetching product list..."));
-    
+    // Delete all products
+    console.log(chalk.blue(`\n🔄 Fetching all products from ${chalk.bold(siteName)}...`));
     const products = await fetchAllProducts();
     
     if (products.length === 0) {
-      console.log(chalk.yellow("No products found to delete."));
+      console.log(chalk.yellow("No products found."));
       return;
     }
     
-    console.log(chalk.yellow(`Found ${products.length} products to delete.`));
+    console.log(chalk.green(`Found ${products.length} products.`));
     
     // Delete each product
-    let deleted = 0;
-    let failed = 0;
-    let imagesDeleted = 0;
-    
     for (const product of products) {
       try {
-        // Pass the product slug, deleteImages flag, and thoroughCleanup flag
-        await deleteProduct(product.id, product.slug, shouldDeleteImages && deleteImagesConfirmed, thoroughCleanup && thoroughCleanupConfirmed);
-        console.log(chalk.green(`✓ Deleted product: ${product.name} (ID: ${product.id})`));
-        deleted++;
-      } catch (error) {
-        console.error(chalk.red(`✗ Failed to delete product: ${product.name} (ID: ${product.id})`), error);
-        failed++;
+        // Skip if this product ID has already been deleted
+        if (deletedProductIds.has(product.id)) {
+          console.log(chalk.yellow(`Skipping product ID ${product.id} (${product.name || 'Unknown'}) as it was already deleted`));
+          continue;
+        }
+        
+        await deleteProduct(product.id, product.slug, deleteImagesConfirmed, thoroughCleanupConfirmed);
+        
+        // Mark this product as deleted
+        deletedProductIds.add(product.id);
+      } catch (error: any) {
+        console.log(chalk.red(`✗ Failed to delete product: ${product.name || product.id} Error: ${error.message || error}`));
       }
       
       // Small delay to avoid overwhelming the server
@@ -147,11 +150,10 @@ async function deleteAllProducts(): Promise<void> {
     
     console.log(chalk.green.bold(`\n✓ Deletion complete!`));
     console.log(chalk.cyan(`Total products processed: ${products.length}`));
-    console.log(chalk.green(`Successfully deleted: ${deleted}`));
     
-    if (failed > 0) {
-      console.log(chalk.red(`Failed to delete: ${failed}`));
-    }
+    // Print summary
+    console.log(chalk.green(`\n✓ Deletion process completed.`));
+    console.log(chalk.green(`  Total products processed: ${deletedProductIds.size}`));
     
     if (shouldDeleteImages && deleteImagesConfirmed) {
       console.log(chalk.yellow(`\nImage deletion was enabled. Product images have been deleted.`));
@@ -202,12 +204,59 @@ async function deleteAllProducts(): Promise<void> {
  * Fetch all products from all available languages
  */
 async function fetchAllProducts(): Promise<any[]> {
-  // Array of language codes to fetch products from
-  // Include empty string for default language, 'en' for English, and any other languages you need
-  const languages = ['', 'en', 'lt', 'de', 'fr', 'es', 'it'];
+  let allProducts: any[] = [];
+  let page = 1;
+  let hasMorePages = true;
+  
+  console.log(chalk.cyan(`Fetching products from all languages using lang=all parameter...`));
+  
+  // Use lang=all parameter to get products in all languages at once
+  while (hasMorePages) {
+    const url = `${getImportBaseUrl()}/wp-json/wc/v3/products?per_page=100&page=${page}&lang=all`;
+    
+    try {
+      const products = await fetchJSON(url);
+      
+      if (products.length === 0) {
+        hasMorePages = false;
+      } else {
+        // Check for duplicates before adding
+        const newProducts = products.filter((newProduct: any) => 
+          !allProducts.some(existingProduct => existingProduct.id === newProduct.id)
+        );
+        
+        if (newProducts.length > 0) {
+          allProducts = [...allProducts, ...newProducts];
+          console.log(chalk.dim(`Fetched page ${page} (${newProducts.length} unique products)`));
+        } else {
+          console.log(chalk.dim(`Fetched page ${page} (0 unique products, all were duplicates)`));
+        }
+        page++;
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error fetching products with lang=all, page ${page}:`), error);
+      hasMorePages = false;
+      
+      // Fallback to fetching by individual languages if lang=all fails
+      console.log(chalk.yellow(`Falling back to fetching products by individual languages...`));
+      return fetchProductsByLanguage();
+    }
+  }
+  
+  console.log(chalk.green(`✓ Found a total of ${allProducts.length} unique products across all languages`));
+  
+  return allProducts;
+}
+
+/**
+ * Fallback function to fetch products by individual languages
+ */
+async function fetchProductsByLanguage(): Promise<any[]> {
+  // Array of language codes to fetch products from - make sure to include ALL languages used in your site
+  const languages = ['', 'en', 'lt', 'de', 'fr', 'es', 'it', 'ru', 'pl', 'lv', 'et'];
   let allProducts: any[] = [];
   
-  console.log(chalk.cyan(`Fetching products from all languages...`));
+  console.log(chalk.cyan(`Fetching products from each language individually...`));
   
   // Fetch products from each language
   for (const lang of languages) {
@@ -613,9 +662,10 @@ async function deleteNumberedDuplicates(filenameWithoutExt: string, fileExt: str
  */
 async function getProductTranslations(productId: number): Promise<number[]> {
   const translationIds: number[] = [];
+  let translationsFound = false;
   
   try {
-    // Try WPML API first
+    // Method 1: Try the WPML v1 translations API
     const wpmlUrl = `${getImportBaseUrl()}/wp-json/wpml/v1/get_element_translations?element_type=product&element_id=${productId}`;
     try {
       const translations = await fetchJSON(wpmlUrl);
@@ -623,39 +673,141 @@ async function getProductTranslations(productId: number): Promise<number[]> {
       if (translations && Array.isArray(translations)) {
         for (const translation of translations) {
           if (translation.element_id && translation.element_id !== productId) {
-            translationIds.push(parseInt(translation.element_id));
+            const translationId = parseInt(translation.element_id);
+            if (!isNaN(translationId) && !translationIds.includes(translationId)) {
+              translationIds.push(translationId);
+            }
           }
         }
-        console.log(chalk.blue(`Found ${translationIds.length} translations via WPML API for product ID ${productId}`));
-        return translationIds;
+        if (translationIds.length > 0) {
+          console.log(chalk.blue(`Found ${translationIds.length} translations via WPML API v1 for product ID ${productId}`));
+          translationsFound = true;
+        }
       }
     } catch (wpmlError) {
-      // WPML API failed, try alternative approach
-      console.log(chalk.dim(`WPML translation API not available, trying alternative method`));
+      // WPML API v1 failed, continue to next method
+      console.log(chalk.dim(`WPML translation API v1 not available, trying alternative methods`));
     }
     
-    // If WPML API fails, try to get translations via product metadata
-    const productUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${productId}`;
-    const product = await fetchJSON(productUrl);
-    
-    // Check if product has translation metadata
-    if (product.meta_data) {
-      for (const meta of product.meta_data) {
-        if (meta.key === '_icl_translations_json') {
-          try {
-            const translationsData = JSON.parse(meta.value);
-            for (const langCode in translationsData) {
-              if (translationsData[langCode] && translationsData[langCode].id && translationsData[langCode].id !== productId) {
-                translationIds.push(parseInt(translationsData[langCode].id));
+    // Method 2: Try the WPML product translations API
+    if (!translationsFound) {
+      const wpmlProductUrl = `${getImportBaseUrl()}/wp-json/wpml/v1/product/${productId}/translations`;
+      try {
+        const productTranslations = await fetchJSON(wpmlProductUrl);
+        
+        if (productTranslations && typeof productTranslations === 'object') {
+          for (const langCode in productTranslations) {
+            if (productTranslations[langCode] && 
+                productTranslations[langCode].id && 
+                productTranslations[langCode].id !== productId) {
+              const translationId = parseInt(productTranslations[langCode].id);
+              if (!isNaN(translationId) && !translationIds.includes(translationId)) {
+                translationIds.push(translationId);
               }
             }
-            console.log(chalk.blue(`Found ${translationIds.length} translations via product metadata for product ID ${productId}`));
-            return translationIds;
-          } catch (parseError) {
-            console.log(chalk.yellow(`Error parsing translation metadata: ${parseError}`));
+          }
+          if (translationIds.length > 0) {
+            console.log(chalk.blue(`Found ${translationIds.length} translations via WPML product API for product ID ${productId}`));
+            translationsFound = true;
           }
         }
+      } catch (wpmlProductError) {
+        // WPML product API failed, continue to next method
+        console.log(chalk.dim(`WPML product translation API not available, trying next method`));
       }
+    }
+    
+    // Method 3: Try to get translations via product metadata
+    if (!translationsFound) {
+      const productUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${productId}?lang=all`;
+      try {
+        const product = await fetchJSON(productUrl);
+        
+        // Check if product has translation metadata
+        if (product.meta_data) {
+          for (const meta of product.meta_data) {
+            if (meta.key === '_icl_translations_json') {
+              try {
+                const translationsData = JSON.parse(meta.value);
+                for (const langCode in translationsData) {
+                  if (translationsData[langCode] && 
+                      translationsData[langCode].id && 
+                      translationsData[langCode].id !== productId) {
+                    const translationId = parseInt(translationsData[langCode].id);
+                    if (!isNaN(translationId) && !translationIds.includes(translationId)) {
+                      translationIds.push(translationId);
+                    }
+                  }
+                }
+                if (translationIds.length > 0) {
+                  console.log(chalk.blue(`Found ${translationIds.length} translations via product metadata for product ID ${productId}`));
+                  translationsFound = true;
+                }
+              } catch (parseError) {
+                console.log(chalk.yellow(`Error parsing translation metadata: ${parseError}`));
+              }
+            }
+          }
+        }
+        
+        // Method 4: Check for translations field in the product
+        if (!translationsFound && product.translations) {
+          for (const langCode in product.translations) {
+            if (product.translations[langCode] && 
+                product.translations[langCode] !== productId) {
+              const translationId = parseInt(product.translations[langCode]);
+              if (!isNaN(translationId) && !translationIds.includes(translationId)) {
+                translationIds.push(translationId);
+              }
+            }
+          }
+          if (translationIds.length > 0) {
+            console.log(chalk.blue(`Found ${translationIds.length} translations via product translations field for product ID ${productId}`));
+            translationsFound = true;
+          }
+        }
+      } catch (productError) {
+        console.log(chalk.yellow(`Error fetching product data: ${productError}`));
+      }
+    }
+    
+    // Method 5: Try to find translations by slug matching
+    if (!translationsFound) {
+      try {
+        // Get the current product to find its slug
+        const productUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${productId}`;
+        const product = await fetchJSON(productUrl);
+        
+        if (product && product.slug) {
+          const productSlug = product.slug;
+          console.log(chalk.dim(`Searching for products with matching slug: ${productSlug}`));
+          
+          // Search for products with the same slug in other languages
+          const searchUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products?slug=${productSlug}&lang=all`;
+          const matchingProducts = await fetchJSON(searchUrl);
+          
+          if (Array.isArray(matchingProducts)) {
+            for (const matchingProduct of matchingProducts) {
+              if (matchingProduct.id && matchingProduct.id !== productId) {
+                const matchId = parseInt(matchingProduct.id);
+                if (!isNaN(matchId) && !translationIds.includes(matchId)) {
+                  translationIds.push(matchId);
+                }
+              }
+            }
+            if (translationIds.length > 0) {
+              console.log(chalk.blue(`Found ${translationIds.length} translations via slug matching for product ID ${productId}`));
+              translationsFound = true;
+            }
+          }
+        }
+      } catch (slugError) {
+        console.log(chalk.yellow(`Error searching by slug: ${slugError}`));
+      }
+    }
+    
+    if (translationIds.length === 0) {
+      console.log(chalk.yellow(`No translations found for product ID ${productId} using any method`));
     }
     
     return translationIds;
@@ -673,30 +825,40 @@ async function getProductTranslations(productId: number): Promise<number[]> {
  * @param thoroughCleanup - Whether to perform thorough media cleanup after deletion
  */
 async function deleteProduct(id: number, slug: string, deleteImages: boolean = false, thoroughCleanup: boolean = false): Promise<void> {
-  // First, if deleteImages is true, get the product's images
-  if (deleteImages) {
-    try {
-      // Get product details to find associated images
-      const productUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${id}`;
-      const product = await fetchJSON(productUrl);
-      const productName = product.name || `Product ID ${id}`;
-      
-      // Process images from the main product
-      if (product.images && Array.isArray(product.images)) {
-        console.log(chalk.blue(`Found ${product.images.length} images for product: ${productName} (ID: ${id})`));
+  const productUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${id}`;
+  
+  try {
+    // First get the product to display its name
+    const product = await fetchJSON(productUrl);
+    const productName = product.name || `Product ID ${id}`;
+    
+    console.log(chalk.blue(`Deleting product: ${productName} (ID: ${id})...`));
+    
+    // Get all translations BEFORE deleting the product
+    const translationIds = await getProductTranslations(id);
+    
+    if (translationIds.length > 0) {
+      console.log(chalk.blue(`Found ${translationIds.length} translations for product ID ${id}`));
+    }
+    
+    // If deleteImages is true, delete the product images first
+    if (deleteImages) {
+      try {
+        console.log(chalk.blue(`Deleting images for product: ${productName} (ID: ${id})...`));
         
-        // Delete each image
-        for (const image of product.images) {
-          if (image.id) {
-            await deleteImageIfMatchingSlug(image.id, slug, getImportBaseUrl());
+        // Process images from the main product
+        if (product.images && Array.isArray(product.images)) {
+          console.log(chalk.blue(`Found ${product.images.length} images for product: ${productName} (ID: ${id})`));
+          
+          // Delete each image
+          for (const image of product.images) {
+            if (image.id) {
+              await deleteImageIfMatchingSlug(image.id, slug, getImportBaseUrl());
+            }
           }
         }
-      }
-      
-      // Get and process images from translated versions
-      try {
-        const translationIds = await getProductTranslations(id);
         
+        // Process images from translated versions
         if (translationIds.length > 0) {
           console.log(chalk.blue(`Processing images from ${translationIds.length} translated versions of product ID ${id}`));
           
@@ -705,9 +867,12 @@ async function deleteProduct(id: number, slug: string, deleteImages: boolean = f
               const translationUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${translationId}`;
               const translatedProduct = await fetchJSON(translationUrl);
               const translatedSlug = translatedProduct.slug || slug;
+              const translatedName = translatedProduct.name || `Translation ID ${translationId}`;
+              
+              console.log(chalk.blue(`Processing translated product: ${translatedName} (ID: ${translationId})`));
               
               if (translatedProduct.images && Array.isArray(translatedProduct.images)) {
-                console.log(chalk.blue(`Found ${translatedProduct.images.length} images for translated product: ${translatedProduct.name || `Translation ID ${translationId}`}`));
+                console.log(chalk.blue(`Found ${translatedProduct.images.length} images for translated product: ${translatedName}`));
                 
                 for (const image of translatedProduct.images) {
                   if (image.id) {
@@ -720,59 +885,135 @@ async function deleteProduct(id: number, slug: string, deleteImages: boolean = f
             }
           }
         }
-      } catch (translationsError: any) {
-        console.log(chalk.yellow(`Error getting translations: ${translationsError.message || translationsError}`));
+      } catch (error: any) {
+        console.log(chalk.yellow(`⚠️ Error fetching product images for ID ${id}: ${error.message || error}`));
       }
-    } catch (error: any) {
-      console.log(chalk.yellow(`⚠️ Error fetching product images for ID ${id}: ${error.message || error}`));
-    }
-  }
-  
-  // Then delete the product
-  const url = `${getImportBaseUrl()}/wp-json/wc/v3/products/${id}?force=true`;
-  
-  await fetchJSON(url, {
-    method: "DELETE"
-  });
-  
-  // If thoroughCleanup is enabled, run the dedicated cleanup-media script for more thorough cleanup
-  if (thoroughCleanup) {
-    console.log(chalk.blue(`🧹 Performing thorough media cleanup for product slug: ${slug}`));
-    
-    // Path to the cleanup-media script
-    const cleanupMediaScript = path.join(__dirname, "cleanup-media.ts");
-    
-    if (!fs.existsSync(cleanupMediaScript)) {
-      console.log(chalk.yellow(`⚠️ Cleanup media script not found at: ${cleanupMediaScript}`));
-      return;
     }
     
-    // Run the cleanup-media script with the product slug
-    return new Promise<void>((resolve, reject) => {
-      const args = ["--confirm"]; // Always skip confirmation since we already confirmed
-      
-      console.log(chalk.blue(`Running cleanup script for ${slug}...`));
-      
-      const childProcess = spawn("yarn", ["ts-node", cleanupMediaScript, slug, ...args], {
-        stdio: "inherit",
-        cwd: process.cwd()
-      });
-      
-      childProcess.on("close", (code) => {
-        if (code === 0) {
-          console.log(chalk.green(`✓ Thorough media cleanup completed for product: ${slug}`));
-          resolve();
-        } else {
-          console.log(chalk.yellow(`⚠️ Cleanup script exited with code ${code}`));
-          resolve(); // Still resolve to continue with other products
-        }
-      });
-      
-      childProcess.on("error", (err) => {
-        console.log(chalk.yellow(`⚠️ Error running cleanup script: ${err.message}`));
-        resolve(); // Still resolve to continue with other products
-      });
+    // Delete the main product
+    const url = `${getImportBaseUrl()}/wp-json/wc/v3/products/${id}?force=true`;
+    
+    await fetchJSON(url, {
+      method: "DELETE"
     });
+    
+    // Mark this product as deleted
+    deletedProductIds.add(id);
+    
+    console.log(chalk.green(`✓ Deleted main product: ${productName} (ID: ${id})`));
+    
+    // Delete all translations
+    if (translationIds.length > 0) {
+      console.log(chalk.blue(`Deleting ${translationIds.length} translations of product ID ${id}...`));
+      
+      for (const translationId of translationIds) {
+        try {
+          // Skip if this translation ID has already been deleted
+          if (deletedProductIds.has(translationId)) {
+            console.log(chalk.yellow(`Skipping translation ID ${translationId} as it was already deleted`));
+            continue;
+          }
+          
+          // Get translation info before deleting
+          let translatedName = `Translation ID ${translationId}`;
+          try {
+            const translationUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${translationId}`;
+            const translatedProduct = await fetchJSON(translationUrl);
+            translatedName = translatedProduct.name || translatedName;
+          } catch (infoError) {
+            // Continue with default name if we can't get the product info
+          }
+          
+          // Delete the translation
+          const deleteUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${translationId}?force=true`;
+          await fetchJSON(deleteUrl, {
+            method: "DELETE"
+          });
+          
+          // Mark this translation as deleted
+          deletedProductIds.add(translationId);
+          
+          console.log(chalk.green(`✓ Deleted translated product: ${translatedName} (ID: ${translationId})`));
+        } catch (translationError: any) {
+          console.log(chalk.yellow(`⚠️ Error deleting translated product ID ${translationId}: ${translationError.message || translationError}`));
+        }
+      }
+    }
+    
+    // If thoroughCleanup is enabled, run the dedicated cleanup-media script for more thorough cleanup
+    if (thoroughCleanup) {
+      console.log(chalk.blue(`🧹 Performing thorough media cleanup for product and its translations`));
+      
+      // Path to the cleanup-media script
+      const cleanupMediaScript = path.join(__dirname, "cleanup-media.ts");
+      
+      if (!fs.existsSync(cleanupMediaScript)) {
+        console.log(chalk.yellow(`⚠️ Cleanup media script not found at: ${cleanupMediaScript}`));
+        return;
+      }
+      
+      // Collect all slugs from translations
+      const allSlugs = new Set<string>([slug]); // Start with the main product slug
+      
+      // Get slugs from all translations
+      if (translationIds.length > 0) {
+        console.log(chalk.blue(`Collecting slugs from ${translationIds.length} translations for thorough cleanup...`));
+        
+        for (const translationId of translationIds) {
+          try {
+            const translationUrl = `${getImportBaseUrl()}/wp-json/wc/v3/products/${translationId}`;
+            try {
+              const translatedProduct = await fetchJSON(translationUrl);
+              if (translatedProduct.slug) {
+                allSlugs.add(translatedProduct.slug);
+                console.log(chalk.blue(`Added translation slug for cleanup: ${translatedProduct.slug} (${translatedProduct.name || 'Unknown'})`));
+              }
+            } catch (error: any) {
+              // If we can't get the product info, just continue
+              console.log(chalk.yellow(`Couldn't fetch translation ID ${translationId} for slug collection: ${error.message || error}`));
+            }
+          } catch (error: any) {
+            console.log(chalk.yellow(`Error processing translation ID ${translationId} for slug collection: ${error.message || error}`));
+          }
+        }
+      }
+      
+      // Run the cleanup-media script for each unique slug
+      const cleanupPromises = Array.from(allSlugs).map(productSlug => {
+        return new Promise<void>((resolve) => {
+          console.log(chalk.blue(`Running cleanup script for slug: ${productSlug}...`));
+          
+          const args = [productSlug, "--confirm", "--thorough"]; // Always skip confirmation since we already confirmed
+          
+          const childProcess = spawn("yarn", ["ts-node", cleanupMediaScript, ...args], {
+            stdio: "inherit",
+            cwd: process.cwd()
+          });
+          
+          childProcess.on("close", (code) => {
+            if (code === 0) {
+              console.log(chalk.green(`✓ Thorough media cleanup completed for: ${productSlug}`));
+            } else {
+              console.log(chalk.yellow(`⚠️ Cleanup script exited with code ${code} for: ${productSlug}`));
+            }
+            resolve(); // Always resolve to continue with other slugs
+          });
+          
+          childProcess.on("error", (err) => {
+            console.log(chalk.yellow(`⚠️ Error running cleanup script for ${productSlug}: ${err.message}`));
+            resolve(); // Always resolve to continue with other slugs
+          });
+        });
+      });
+      
+      // Wait for all cleanup processes to complete
+      return Promise.all(cleanupPromises).then(() => {
+        console.log(chalk.green(`✓ Completed media cleanup for all ${allSlugs.size} product slugs`));
+      });
+    }
+  } catch (error: any) {
+    console.log(chalk.red(`✗ Failed to delete product ID ${id}: ${error.message || error}`));
+    throw error;
   }
 }
 

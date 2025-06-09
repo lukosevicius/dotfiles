@@ -9,39 +9,145 @@
  * - Improved logging and error handling
  */
 import chalk from "chalk";
-import path from "path";
-import fs from "fs";
+import * as path from "path";
+import * as fs from "fs";
 import { execSync } from "child_process";
 import { fetchJSON } from "../utils/api";
 import { getImportBaseUrl } from "../utils/config-utils";
+import * as readline from 'readline';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-const productSlug = args[0];
-
-// Extract flags
-const shouldConfirm = !args.includes("--confirm");
-const thoroughCleanup = args.includes("--thorough");
+const firstArg = args[0];
+const confirmFlag = args.includes("--confirm");
+const thoroughFlag = args.includes("--thorough");
+const mediaIdsFlag = args.includes("--media-ids");
 
 // Get max retries parameter
 let maxRetries = 3; // Default value
-const maxRetriesIndex = args.indexOf("--max-retries");
-if (maxRetriesIndex !== -1 && args[maxRetriesIndex + 1]) {
-  const parsedValue = parseInt(args[maxRetriesIndex + 1]);
-  if (!isNaN(parsedValue) && parsedValue > 0) {
-    maxRetries = parsedValue;
+if (args.includes("--retries")) {
+  const retryIndex = args.indexOf("--retries");
+  if (args[retryIndex + 1]) {
+    const retryValue = parseInt(args[retryIndex + 1], 10);
+    if (!isNaN(retryValue) && retryValue > 0) {
+      maxRetries = retryValue;
+    }
   }
 }
 
-// Check if a product slug is provided
-if (!productSlug) {
-  console.error(chalk.red("❌ Error: Product slug is required"));
-  console.log(chalk.yellow("Usage: ts-node cleanup-media.ts <product-slug> [--confirm] [--thorough] [--max-retries <number>]"));
-  console.log(chalk.blue("Options:"));
-  console.log(chalk.blue("  --confirm       Skip confirmation prompts"));
-  console.log(chalk.blue("  --thorough      Perform thorough cleanup of all related files"));
-  console.log(chalk.blue("  --max-retries   Maximum number of API call retries (default: 3)"));
-  process.exit(1);
+// Main script execution
+(async () => {
+  try {
+    // Check if we're in media IDs mode
+    if (mediaIdsFlag) {
+      // Extract media IDs from arguments
+      const mediaIds = args
+        .filter(arg => !arg.startsWith("--"))
+        .map(id => parseInt(id, 10))
+        .filter(id => !isNaN(id));
+      
+      if (mediaIds.length === 0) {
+        console.log(chalk.red(`\nError: Please provide at least one media ID when using --media-ids flag.`));
+        console.log(`Usage: yarn ts-node products/cleanup-media.ts --media-ids <id1> <id2> ... [--confirm]`);
+        process.exit(1);
+      }
+      
+      // Confirm deletion
+      if (!confirmFlag) {
+        console.log(chalk.yellow(`\n⚠️ WARNING: This will delete ${mediaIds.length} media items from all languages!`));
+        console.log(chalk.yellow(`Run with --confirm flag to skip this confirmation.`));
+        
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        });
+        
+        rl.question(chalk.yellow(`Are you sure you want to delete these media items? (y/n): `), async (answer) => {
+          rl.close();
+          if (answer.toLowerCase() !== 'y') {
+            console.log(chalk.blue(`Operation cancelled.`));
+            process.exit(0);
+          } else {
+            // Process media IDs
+            await cleanupMediaByIds(mediaIds);
+          }
+        });
+      } else {
+        // Skip confirmation
+        await cleanupMediaByIds(mediaIds);
+      }
+    } else {
+      // Original slug-based cleanup
+      const productSlug = firstArg;
+      
+      if (!productSlug) {
+        console.log(chalk.red(`\nError: Please provide a product slug as the first argument.`));
+        console.log(`Usage: yarn ts-node products/cleanup-media.ts <product-slug> [--confirm] [--thorough]`);
+        console.log(`       yarn ts-node products/cleanup-media.ts --media-ids <id1> <id2> ... [--confirm]`);
+        process.exit(1);
+      }
+      
+      // Confirm deletion if not using --confirm flag
+      if (!confirmFlag) {
+        console.log(chalk.yellow(`\n⚠️ WARNING: This will delete all media for product: ${productSlug}`));
+        console.log(chalk.yellow(`Run with --confirm flag to skip this confirmation.`));
+        
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        });
+        
+        rl.question(chalk.yellow(`Are you sure you want to delete all media for ${productSlug}? (y/n): `), async (answer) => {
+          rl.close();
+          if (answer.toLowerCase() !== 'y') {
+            console.log(chalk.blue(`Operation cancelled.`));
+            process.exit(0);
+          } else {
+            // Continue with deletion
+            await deleteAllMediaForProduct(productSlug);
+          }
+        });
+      } else {
+        // Skip confirmation
+        await deleteAllMediaForProduct(productSlug);
+      }
+    }
+  } catch (error) {
+    console.error(chalk.red.bold("✗ Fatal error:"), error);
+    process.exit(1);
+  }
+})();
+
+/**
+ * Clean up media items by their IDs directly
+ * @param mediaIds - Array of media IDs to delete
+ */
+async function cleanupMediaByIds(mediaIds: number[]): Promise<void> {
+  console.log(chalk.cyan(`🔍 Cleaning up ${mediaIds.length} media items by ID...`));
+  
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (const mediaId of mediaIds) {
+    try {
+      const success = await deleteMediaItemInAllLanguages(mediaId);
+      if (success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+    } catch (error) {
+      console.log(chalk.red(`Error processing media ID ${mediaId}: ${error}`));
+      failCount++;
+    }
+  }
+  
+  // Print summary
+  console.log(chalk.green(`\n✓ Media cleanup completed`));
+  console.log(chalk.green(`  Successfully deleted: ${successCount} items`));
+  if (failCount > 0) {
+    console.log(chalk.yellow(`  Failed to delete: ${failCount} items`));
+  }
 }
 
 /**
@@ -212,6 +318,269 @@ function deletePhysicalFilesMatchingPattern(directory: string, pattern: string):
 }
 
 /**
+ * Delete a media item from WordPress database
+ * @param mediaId - The ID of the media item to delete
+ * @param lang - Optional language code to use for the deletion
+ * @returns True if deletion was successful, false otherwise
+ */
+async function deleteMediaItem(mediaId: number, lang?: string): Promise<boolean> {
+  try {
+    const baseUrl = getImportBaseUrl();
+    let deleteUrl = `${baseUrl}/wp-json/wp/v2/media/${mediaId}?force=true`;
+    
+    // Add language parameter if provided
+    if (lang) {
+      deleteUrl += `&lang=${lang}`;
+    }
+    
+    await retryOperation(
+      async () => await fetchJSON(deleteUrl, { method: "DELETE" }),
+      maxRetries,
+      `delete media item ${mediaId}${lang ? ` in ${lang}` : ''}`
+    );
+    
+    return true;
+  } catch (error: any) {
+    // Check if it's a 404 error (item not found)
+    if (error.status === 404) {
+      console.log(chalk.dim(`Media item ${mediaId} not found${lang ? ` in ${lang}` : ''}`));
+      return false;
+    }
+    
+    // For other errors, log and return false
+    console.log(chalk.yellow(`⚠️ Error deleting media item ${mediaId}${lang ? ` in ${lang}` : ''}: ${error.message || error}`));
+    return false;
+  }
+}
+
+/**
+ * Delete a media item across all languages
+ * This is especially useful for media items that appear in the admin Files section
+ * for languages where the product has no translation
+ * 
+ * @param mediaId - The ID of the media item to delete
+ * @returns True if deletion was successful in at least one language, false otherwise
+ */
+async function deleteMediaItemInAllLanguages(mediaId: number): Promise<boolean> {
+  try {
+    console.log(chalk.blue(`Attempting to delete media item ID ${mediaId} across all languages...`));
+    
+    // First try direct deletion without language parameter
+    const directResult = await deleteMediaItem(mediaId);
+    if (directResult) {
+      console.log(chalk.green(`✓ Successfully deleted media item ${mediaId} directly`));
+      return true;
+    }
+    
+    // If direct deletion fails, try with specific languages
+    const languages = ['en', 'lt', 'lv', 'ru', 'de', 'fr', 'es', 'it', 'pl'];
+    let successInAnyLanguage = false;
+    
+    for (const lang of languages) {
+      try {
+        const langResult = await deleteMediaItem(mediaId, lang);
+        if (langResult) {
+          console.log(chalk.green(`✓ Successfully deleted media item ${mediaId} in ${lang} language`));
+          successInAnyLanguage = true;
+        }
+      } catch (langError) {
+        // Skip language-specific errors and continue with next language
+        console.log(chalk.yellow(`⚠️ Error deleting media item ${mediaId} in ${lang} language: ${langError}`));
+      }
+    }
+    
+    if (successInAnyLanguage) {
+      return true;
+    } else {
+      console.log(chalk.yellow(`⚠️ Could not delete media item ${mediaId} in any language`));
+      return false;
+    }
+  } catch (error) {
+    console.log(chalk.red(`❌ Error in deleteMediaItemInAllLanguages for ID ${mediaId}: ${error}`));
+    return false;
+  }
+}
+
+/**
+ * Search for remaining media items in the database across all languages
+ * @param slug - The slug to search for
+ */
+async function cleanupRemainingMediaItems(slug: string): Promise<void> {
+  console.log(chalk.blue(`\nPerforming final cleanup of database media entries...`));
+  
+  const baseUrl = getImportBaseUrl();
+  
+  console.log(chalk.cyan(`Searching for remaining media items matching: ${slug} (across all languages)`));
+  
+  // Try different search approaches to find all possible media items
+  // First approach: Using lang=all parameter to search across all languages at once
+  const allLangMediaUrl = `${baseUrl}/wp-json/wp/v2/media?search=${slug}&per_page=100&lang=all`;
+  
+  // Second approach: Direct filename search which can be more accurate
+  const filenameSearchUrl = `${baseUrl}/wp-json/wp/v2/media?search=${slug}&per_page=100&orderby=id&media_type=image`;
+  
+  // Track all media items found to avoid duplicates
+  const processedMediaIds = new Set<number>();
+  let totalFound = 0;
+  let totalDeleted = 0;
+  
+  // First approach: Using lang=all parameter
+  try {
+    const allLangMediaItems = await retryOperation(
+      async () => await fetchJSON(allLangMediaUrl),
+      maxRetries,
+      `search for media items with lang=all`
+    );
+    
+    if (Array.isArray(allLangMediaItems) && allLangMediaItems.length > 0) {
+      console.log(chalk.yellow(`Found ${allLangMediaItems.length} remaining media items for ${slug} across all languages`));
+      
+      // Group media items by filename to identify duplicates across languages
+      const mediaByFilename = new Map<string, Array<any>>();
+      
+      for (const item of allLangMediaItems) {
+        if (!item.source_url) continue;
+        
+        const filename = path.basename(item.source_url);
+        if (!mediaByFilename.has(filename)) {
+          mediaByFilename.set(filename, []);
+        }
+        mediaByFilename.get(filename)!.push(item);
+      }
+      
+      console.log(chalk.blue(`Found ${mediaByFilename.size} unique media filenames to process`));
+      
+      // Process each unique filename
+      for (const [filename, items] of mediaByFilename.entries()) {
+        if (!filename.includes(slug)) continue;
+        
+        console.log(chalk.blue(`Processing ${items.length} instances of file: ${filename}`));
+        
+        // Process all instances of this file (across different languages)
+        for (const item of items) {
+          if (item.id && !processedMediaIds.has(item.id)) {
+            processedMediaIds.add(item.id);
+            totalFound++;
+            
+            try {
+              // Delete directly across all languages at once
+              const deleted = await deleteMediaItemInAllLanguages(item.id);
+              
+              if (deleted) {
+                console.log(chalk.green(`✓ Deleted media item across all languages: ${item.title?.rendered || filename} (ID: ${item.id})`));
+                totalDeleted++;
+                
+                // Delete physical files if they exist
+                if (item.source_url) {
+                  const filePaths = getPhysicalFilePath(item.source_url, thoroughFlag);
+                  if (filePaths.length > 0) {
+                    const deletedCount = deletePhysicalFiles(filePaths);
+                    console.log(chalk.green(`✓ Deleted ${deletedCount} physical files for: ${filename}`));
+                  }
+                }
+              } else {
+                console.log(chalk.yellow(`⚠️ Failed to delete media item ID ${item.id}`));
+              }
+            } catch (error) {
+              console.log(chalk.yellow(`⚠️ Error deleting media item ${item.id}: ${error}`));
+            }
+          }
+        }
+      }
+    } else {
+      console.log(chalk.dim(`No remaining media items found for ${slug} with lang=all parameter`));
+    }
+  } catch (error) {
+    console.log(chalk.yellow(`⚠️ Error searching for media items with lang=all: ${error}`));
+  }
+  
+  // Second approach: Direct filename search
+  try {
+    const filenameMediaItems = await retryOperation(
+      async () => await fetchJSON(filenameSearchUrl),
+      maxRetries,
+      `search for media items by filename`
+    );
+    
+    if (Array.isArray(filenameMediaItems) && filenameMediaItems.length > 0) {
+      // Filter items to only include those with filenames containing the slug
+      const matchingItems = filenameMediaItems.filter(item => 
+        item.source_url && 
+        item.source_url.toLowerCase().includes(slug.toLowerCase()) &&
+        !processedMediaIds.has(item.id)
+      );
+      
+      if (matchingItems.length > 0) {
+        console.log(chalk.yellow(`Found ${matchingItems.length} additional media items with filenames matching ${slug}`));
+        
+        // Group by filename
+        const additionalByFilename = new Map<string, Array<any>>();
+        
+        for (const item of matchingItems) {
+          if (!item.source_url) continue;
+          
+          const filename = path.basename(item.source_url);
+          if (!additionalByFilename.has(filename)) {
+            additionalByFilename.set(filename, []);
+          }
+          additionalByFilename.get(filename)!.push(item);
+        }
+        
+        // Process each unique filename
+        for (const [filename, items] of additionalByFilename.entries()) {
+          console.log(chalk.blue(`Processing ${items.length} additional instances of file: ${filename}`));
+          
+          for (const item of items) {
+            if (item.id && !processedMediaIds.has(item.id)) {
+              processedMediaIds.add(item.id);
+              totalFound++;
+              
+              try {
+                // Delete directly across all languages at once
+                const deleted = await deleteMediaItemInAllLanguages(item.id);
+                
+                if (deleted) {
+                  console.log(chalk.green(`✓ Deleted additional media item: ${item.title?.rendered || filename} (ID: ${item.id})`));
+                  totalDeleted++;
+                  
+                  // Delete physical files if they exist
+                  if (item.source_url) {
+                    const filePaths = getPhysicalFilePath(item.source_url, thoroughFlag);
+                    if (filePaths.length > 0) {
+                      const deletedCount = deletePhysicalFiles(filePaths);
+                      console.log(chalk.green(`✓ Deleted ${deletedCount} physical files for: ${filename}`));
+                    }
+                  }
+                } else {
+                  console.log(chalk.yellow(`⚠️ Failed to delete additional media item ID ${item.id}`));
+                }
+              } catch (error) {
+                console.log(chalk.yellow(`⚠️ Error deleting additional media item ${item.id}: ${error}`));
+              }
+            }
+          }
+        }
+      } else {
+        console.log(chalk.dim(`No additional media items found with filenames matching ${slug}`));
+      }
+    } else {
+      console.log(chalk.dim(`No media items found by filename search for ${slug}`));
+    }
+  } catch (error) {
+    console.log(chalk.yellow(`⚠️ Error searching for media items by filename: ${error}`));
+  }
+  
+  // Print summary of cleanup results
+  console.log(chalk.cyan(`\nMedia cleanup summary for ${slug}:`));
+  console.log(chalk.green(`✓ Total media items found: ${totalFound}`));
+  console.log(chalk.green(`✓ Successfully deleted: ${totalDeleted} items`));
+  
+  if (totalFound > totalDeleted) {
+    console.log(chalk.yellow(`⚠️ Failed to delete: ${totalFound - totalDeleted} items`));
+  }
+}
+
+/**
  * Delete all media items in WordPress database that match a product slug
  * @param productSlug - The slug of the product to delete media for
  */
@@ -224,7 +593,7 @@ async function deleteAllMediaForProduct(productSlug: string): Promise<void> {
     console.log(chalk.cyan(`🔗 Using WordPress site: ${chalk.bold(baseUrl)}`));
     
     // If confirmation is required, ask for it
-    if (shouldConfirm) {
+    if (!confirmFlag) {
       console.log(chalk.red.bold(`⚠️ WARNING: This will delete ALL media items matching "${productSlug}" from the database and filesystem!`));
       console.log(chalk.yellow("Run with --confirm flag to skip this confirmation."));
       
@@ -251,6 +620,7 @@ async function deleteAllMediaForProduct(productSlug: string): Promise<void> {
     console.log(chalk.blue(`Searching for media items matching: ${sanitizedSlug}`));
     
     try {
+      // Get all media items matching the slug
       const mediaItems = await retryOperation(
         async () => await fetchJSON(searchUrl),
         maxRetries,
@@ -262,149 +632,167 @@ async function deleteAllMediaForProduct(productSlug: string): Promise<void> {
       } else {
         console.log(chalk.green(`Found ${mediaItems.length} media items for ${sanitizedSlug}`));
         
-        // Delete each media item
+        // Create a map to track media items by filename to avoid duplicates
+        const mediaByFilename = new Map();
+        
+        // First pass: collect all media items by filename
         for (const item of mediaItems) {
-          try {
-            const itemUrl = item.source_url || '';
-            const filename = path.basename(itemUrl);
-            
-            // Get the physical file paths (with thorough option if enabled)
-            const physicalPaths = getPhysicalFilePath(itemUrl, thoroughCleanup);
-            
-            // Only delete if the filename contains the product slug
-            // This is to avoid deleting unrelated media that might have been returned in the search
-            if (filename.includes(sanitizedSlug)) {
-              console.log(chalk.yellow(`Deleting media item: ${filename} (ID: ${item.id})`));
-              
-              // Delete from WordPress database
-              const deleteUrl = `${baseUrl}/wp-json/wp/v2/media/${item.id}?force=true`;
-              await retryOperation(
-                async () => await fetchJSON(deleteUrl, { method: "DELETE" }),
-                maxRetries,
-                `delete media item ${item.id}`
-              );
-              console.log(chalk.green(`✓ Deleted media item from database: ${filename} (ID: ${item.id})`));
-              
-              // Delete the physical files if they exist
-              if (physicalPaths.length > 0) {
-                try {
-                  const deletedCount = deletePhysicalFiles(physicalPaths);
-                  if (deletedCount > 0) {
-                    console.log(chalk.green(`✓ Deleted physical file: ${filename}`));
-                  }
-                } catch (error) {
-                  console.log(chalk.yellow(`⚠️ Error deleting physical files for media item ${item.id}: ${error}`));
-                }
-              }
+          const mediaUrl = item.source_url || '';
+          const filename = path.basename(mediaUrl);
+          
+          // Only process if the filename contains the product slug
+          if (filename.includes(sanitizedSlug)) {
+            // Store by filename to handle duplicates across languages
+            if (!mediaByFilename.has(filename)) {
+              mediaByFilename.set(filename, []);
             }
-          } catch (itemError: any) {
-            console.log(chalk.yellow(`⚠️ Error deleting media item ID ${item.id}: ${itemError.message || itemError}`));
-          }
-        }
-      }
-      // Now clean up physical files
-      console.log(chalk.blue(`\nSearching for physical files matching: ${sanitizedSlug}`));
-      
-      // Get the uploads directory path
-      const testUrl = `${baseUrl}/wp-content/uploads/placeholder.jpg`;
-      const testPaths = getPhysicalFilePath(testUrl, thoroughCleanup);
-      if (testPaths.length > 0) {
-        const uploadsDir = path.dirname(path.dirname(path.dirname(testPaths[0]))); // Get the uploads directory
-        
-        // Get the current year and month for the most likely location of recent uploads
-        const now = new Date();
-        const year = now.getFullYear().toString();
-        const month = (now.getMonth() + 1).toString().padStart(2, '0');
-        
-        // Define directories to clean up
-        const directoriesToClean = [
-          // Current year/month directory (most likely location)
-          path.join(uploadsDir, year, month)
-        ];
-        
-        // If thorough cleanup is enabled, check additional directories
-        if (thoroughCleanup) {
-          console.log(chalk.blue(`Performing thorough cleanup of all possible upload directories...`));
-          
-          // Check previous months in current year
-          for (let m = 1; m <= 12; m++) {
-            const monthStr = m.toString().padStart(2, '0');
-            // Skip current month as it's already included
-            if (year === now.getFullYear().toString() && monthStr === month) continue;
-            directoriesToClean.push(path.join(uploadsDir, year, monthStr));
-          }
-          
-          // Check previous year
-          const prevYear = (now.getFullYear() - 1).toString();
-          for (let m = 1; m <= 12; m++) {
-            const monthStr = m.toString().padStart(2, '0');
-            directoriesToClean.push(path.join(uploadsDir, prevYear, monthStr));
-          }
-          
-          // Check alternative upload directories
-          const altUploadDirs = [
-            path.join(path.dirname(uploadsDir), 'old-uploads'),
-            path.join(path.dirname(uploadsDir), 'wp-content', 'uploads-old'),
-            path.join(path.dirname(uploadsDir), 'wp-content', 'uploads-backup')
-          ];
-          
-          for (const altDir of altUploadDirs) {
-            if (fs.existsSync(altDir)) {
-              directoriesToClean.push(altDir);
-              // Also check year/month subdirectories in alternative upload directories
-              for (let y = now.getFullYear() - 1; y <= now.getFullYear(); y++) {
-                for (let m = 1; m <= 12; m++) {
-                  const monthStr = m.toString().padStart(2, '0');
-                  directoriesToClean.push(path.join(altDir, y.toString(), monthStr));
-                }
-              }
-            }
+            mediaByFilename.get(filename).push(item);
           }
         }
         
-        // Clean up each directory
-        for (const dir of directoriesToClean) {
-          if (fs.existsSync(dir)) {
+        console.log(chalk.blue(`Found ${mediaByFilename.size} unique media filenames to process`));
+        
+        // Process each unique filename
+        for (const [filename, items] of mediaByFilename.entries()) {
+          console.log(chalk.blue(`Processing ${items.length} instances of file: ${filename}`));
+          
+          // Delete each instance of this file across all languages
+          for (const item of items) {
+            const mediaId = item.id;
+            const mediaTitle = item.title?.rendered || 'Untitled';
+            
             try {
-              console.log(chalk.blue(`Cleaning up files in ${dir}`));
+              // Delete across all languages at once
+              const deleted = await deleteMediaItemInAllLanguages(mediaId);
               
-              // Delete main files
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*.webp`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*.jpg`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*.jpeg`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*.png`);
-              
-              // Delete thumbnails
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-*x*.webp`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-*x*.jpg`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-*x*.jpeg`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-*x*.png`);
-              
-              // Delete scaled versions
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-scaled.webp`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-scaled.jpg`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-scaled.jpeg`);
-              deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-scaled.png`);
-            } catch (error) {
-              console.log(chalk.yellow(`⚠️ Error cleaning up directory ${dir}: ${error}`));
+              if (deleted) {
+                console.log(chalk.green(`✓ Successfully deleted media item from all languages: ${mediaTitle} (ID: ${mediaId})`));
+                
+                // Delete physical files if they exist
+                if (item.source_url) {
+                  const filePaths = getPhysicalFilePath(item.source_url, thoroughFlag);
+                  if (filePaths.length > 0) {
+                    const deletedCount = deletePhysicalFiles(filePaths);
+                    console.log(chalk.green(`✓ Deleted ${deletedCount} physical files for media item: ${mediaTitle}`));
+                  } else {
+                    console.log(chalk.yellow(`⚠️ Could not determine physical file path for media item: ${mediaTitle}`));
+                  }
+                }
+              } else {
+                console.log(chalk.red(`❌ Failed to delete media item from WordPress: ${mediaTitle} (ID: ${mediaId})`));
+              }
+            } catch (itemError) {
+              console.log(chalk.yellow(`⚠️ Error processing media item ${mediaId}: ${itemError}`));
             }
           }
         }
-        
-        // Previous month directory is already handled in the thorough cleanup section if enabled
       }
-      
-      console.log(chalk.green(`\n✓ Media cleanup complete for product: ${productSlug}`));
     } catch (searchError: any) {
       console.log(chalk.red(`❌ Error searching for media items: ${searchError.message || searchError}`));
     }
+      
+    // Check if we need to clean up physical files
+    // This is useful for files that might not be properly linked in WordPress
+    console.log(chalk.blue(`
+Checking for physical files matching: ${sanitizedSlug}`));
+    
+    // Get WordPress uploads directory
+    const uploadsDir = path.resolve(process.cwd(), '../app/public/wp-content/uploads');
+    
+    if (fs.existsSync(uploadsDir)) {
+      // Get current year/month
+      const now = new Date();
+      const year = now.getFullYear().toString();
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      
+      // Define directories to clean up
+      const directoriesToClean = [
+        // Current year/month directory (most likely location)
+        path.join(uploadsDir, year, month)
+      ];
+      
+      // If thorough cleanup is enabled, check additional directories
+      if (thoroughFlag) {
+        console.log(chalk.blue(`Performing thorough cleanup of all possible upload directories...`));
+        
+        // Check previous months in current year
+        for (let m = 1; m <= 12; m++) {
+          const monthStr = m.toString().padStart(2, '0');
+          // Skip current month as it's already included
+          if (year === now.getFullYear().toString() && monthStr === month) continue;
+          directoriesToClean.push(path.join(uploadsDir, year, monthStr));
+        }
+        
+        // Check previous year
+        const prevYear = (now.getFullYear() - 1).toString();
+        for (let m = 1; m <= 12; m++) {
+          const monthStr = m.toString().padStart(2, '0');
+          directoriesToClean.push(path.join(uploadsDir, prevYear, monthStr));
+        }
+        
+        // Check alternative upload directories
+        const altUploadDirs = [
+          path.join(path.dirname(uploadsDir), 'old-uploads'),
+          path.join(path.dirname(uploadsDir), 'wp-content', 'uploads-old'),
+          path.join(path.dirname(uploadsDir), 'wp-content', 'uploads-backup')
+        ];
+        
+        for (const altDir of altUploadDirs) {
+          if (fs.existsSync(altDir)) {
+            directoriesToClean.push(altDir);
+            // Also check year/month subdirectories in alternative upload directories
+            for (let y = now.getFullYear() - 1; y <= now.getFullYear(); y++) {
+              for (let m = 1; m <= 12; m++) {
+                const monthStr = m.toString().padStart(2, '0');
+                directoriesToClean.push(path.join(altDir, y.toString(), monthStr));
+              }
+            }
+          }
+        }
+      }
+      
+      // Clean up each directory
+      for (const dir of directoriesToClean) {
+        if (fs.existsSync(dir)) {
+          try {
+            console.log(chalk.blue(`Cleaning up files in ${dir}`));
+            
+            // Delete main files
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*.webp`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*.jpg`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*.jpeg`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*.png`);
+            
+            // Delete thumbnails
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-*x*.webp`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-*x*.jpg`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-*x*.jpeg`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-*x*.png`);
+            
+            // Delete scaled versions
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-scaled.webp`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-scaled.jpg`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-scaled.jpeg`);
+            deletePhysicalFilesMatchingPattern(dir, `${sanitizedSlug}*-scaled.png`);
+          } catch (error) {
+            console.log(chalk.yellow(`⚠️ Error cleaning up directory ${dir}: ${error}`));
+          }
+        }
+      }
+    }
+    
+    // Final step: Perform a thorough cleanup of any remaining media items across all languages
+    await cleanupRemainingMediaItems(sanitizedSlug);
+    
+    console.log(chalk.green(`
+✓ Media cleanup complete for product: ${productSlug}`));
   } catch (error: any) {
-    console.log(chalk.red(`❌ Error in deleteAllMediaForProduct: ${error.message || error}`));
+    console.log(chalk.red(`❌ Error during media cleanup: ${error.message || error}`));
   }
 }
 
-// Run the cleanup
-deleteAllMediaForProduct(productSlug).catch(error => {
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (error) => {
   console.error(chalk.red.bold("✗ Fatal error:"), error);
   process.exit(1);
 });

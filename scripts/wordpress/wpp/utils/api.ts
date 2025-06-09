@@ -82,18 +82,29 @@ export async function fetchJSON(url: string, options: any = {}, retries = 3, del
       error.message.includes('ECONNRESET') ||
       error.message.includes('socket hang up') ||
       error.message.includes('network timeout') ||
-      error.message.includes('connection refused')
+      error.message.includes('connection refused') ||
+      error.message.includes('ETIMEDOUT') ||
+      error.message.includes('ENOTFOUND') ||
+      error.message.includes('ECONNABORTED') ||
+      error.code === 'ECONNRESET' ||
+      error.code === 'ETIMEDOUT' ||
+      error.code === 'ENOTFOUND' ||
+      error.code === 'ECONNABORTED'
     );
     
     // Retry for connection errors if we have retries left
     if (isConnectionError && retries > 0) {
       console.log(`\x1b[33m⚠️ Connection error: ${error.message}. Retrying... (${retries} attempts left)\x1b[0m`);
       
-      // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, delay));
+      // Wait before retrying with exponential backoff and jitter
+      const jitter = Math.random() * 1000;
+      const backoffDelay = delay + jitter;
+      console.log(`\x1b[33mWaiting ${Math.round(backoffDelay/1000)}s before retry...\x1b[0m`);
       
-      // Retry with one less retry attempt and increased delay
-      return fetchJSON(url, options, retries - 1, delay * 1.5);
+      await new Promise(resolve => setTimeout(resolve, backoffDelay));
+      
+      // Retry with one less retry attempt and increased delay (exponential backoff)
+      return fetchJSON(url, options, retries - 1, Math.min(delay * 2, 15000)); // Cap at 15 seconds
     }
     
     throw error;
