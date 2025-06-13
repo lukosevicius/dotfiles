@@ -7,6 +7,8 @@
  * - Thorough cleanup option for more comprehensive media removal
  * - Retry logic for API calls to handle transient errors
  * - Improved logging and error handling
+ * - Language-specific media cleanup with --language flag
+ * - Media count checking with --check-count flag
  */
 import chalk from "chalk";
 import * as path from "path";
@@ -22,6 +24,17 @@ const firstArg = args[0];
 const confirmFlag = args.includes("--confirm");
 const thoroughFlag = args.includes("--thorough");
 const mediaIdsFlag = args.includes("--media-ids");
+const allMediaFlag = args.includes("--all-media");
+const checkCountFlag = args.includes("--check-count");
+
+// Get language parameter if specified
+let languageFlag = "";
+if (args.includes("--language")) {
+  const langIndex = args.indexOf("--language");
+  if (args[langIndex + 1] && !args[langIndex + 1].startsWith("--")) {
+    languageFlag = args[langIndex + 1];
+  }
+}
 
 // Get max retries parameter
 let maxRetries = 3; // Default value
@@ -38,8 +51,42 @@ if (args.includes("--retries")) {
 // Main script execution
 (async () => {
   try {
+    // Check if we're just checking media count
+    if (checkCountFlag) {
+      await checkMediaCount();
+      return;
+    }
+    
+    // Check if we're in all media mode
+    if (allMediaFlag) {
+      // Confirm deletion
+      if (!confirmFlag) {
+        console.log(chalk.yellow(`\n⚠️ WARNING: This will delete ALL media items from all languages!`));
+        console.log(chalk.yellow(`This is a destructive operation that cannot be undone.`));
+        console.log(chalk.yellow(`Run with --confirm flag to skip this confirmation.`));
+        
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        });
+        
+        rl.question(chalk.yellow(`Are you sure you want to delete ALL media items? (y/n): `), async (answer) => {
+          rl.close();
+          if (answer.toLowerCase() !== 'y') {
+            console.log(chalk.blue(`Operation cancelled.`));
+            process.exit(0);
+          } else {
+            // Process all media
+            await cleanupAllMedia();
+          }
+        });
+      } else {
+        // Skip confirmation
+        await cleanupAllMedia();
+      }
+    }
     // Check if we're in media IDs mode
-    if (mediaIdsFlag) {
+    else if (mediaIdsFlag) {
       // Extract media IDs from arguments
       const mediaIds = args
         .filter(arg => !arg.startsWith("--"))
@@ -84,6 +131,7 @@ if (args.includes("--retries")) {
         console.log(chalk.red(`\nError: Please provide a product slug as the first argument.`));
         console.log(`Usage: yarn ts-node products/cleanup-media.ts <product-slug> [--confirm] [--thorough]`);
         console.log(`       yarn ts-node products/cleanup-media.ts --media-ids <id1> <id2> ... [--confirm]`);
+        console.log(`       yarn ts-node products/cleanup-media.ts --all-media [--confirm] [--thorough]`);
         process.exit(1);
       }
       
@@ -117,6 +165,178 @@ if (args.includes("--retries")) {
     process.exit(1);
   }
 })();
+
+/**
+ * Clean up all media items across all languages or a specific language
+ */
+async function cleanupAllMedia(): Promise<void> {
+  // Determine target language
+  const targetLanguage = languageFlag || 'all';
+  console.log(chalk.cyan(`🔍 Fetching media items${targetLanguage !== 'all' ? ` for language: ${targetLanguage.toUpperCase()}` : ' across all languages'}...`));
+  
+  const baseUrl = getImportBaseUrl();
+  const perPage = 100; // Maximum allowed by WordPress API
+  
+  // First, check if we need to handle languages individually
+  if (targetLanguage === 'all') {
+    try {
+      // Try to get media with lang=all first
+      const checkUrl = `${baseUrl}/wp-json/wp/v2/media?per_page=1&lang=all`;
+      const checkResponse = await fetchJSON(checkUrl);
+      
+      // If we got results, we can process all languages at once
+      if (checkResponse && Array.isArray(checkResponse) && checkResponse.length > 0) {
+        await processMediaByLanguage('all', baseUrl, perPage);
+        return;
+      } else {
+        console.log(chalk.yellow(`⚠️ No media found with lang=all, will process each language individually...`));
+        // Process each language individually
+        const languages = ['en', 'lt', 'lv', 'ru', 'de'];
+        
+        // Track overall progress
+        let totalProcessedCount = 0;
+        let totalDeletedCount = 0;
+        let totalFailedCount = 0;
+        
+        for (const lang of languages) {
+          try {
+            const langStats = await processMediaByLanguage(lang, baseUrl, perPage);
+            totalProcessedCount += langStats.processed;
+            totalDeletedCount += langStats.deleted;
+            totalFailedCount += langStats.failed;
+          } catch (error) {
+            console.log(chalk.red(`\n❌ Error processing ${lang.toUpperCase()}: ${error}`));
+          }
+        }
+        
+        console.log(chalk.green(`\n✅ Overall: ${totalDeletedCount}/${totalProcessedCount} media items deleted across all languages`));
+        if (totalFailedCount > 0) console.log(chalk.red(`  Failed to delete ${totalFailedCount} media items`));
+      }
+    } catch (error) {
+      console.log(chalk.red(`Error checking media availability: ${error}`));
+    }
+  } else {
+    // Process the specific language
+    await processMediaByLanguage(targetLanguage, baseUrl, perPage);
+  }
+}
+
+/**
+ * Process media items for a specific language
+ * @param language - The language code to process
+ * @param baseUrl - The base URL for the WordPress API
+ * @param perPage - Number of items per page
+ * @returns Statistics about the processed media items
+ */
+async function processMediaByLanguage(language: string, baseUrl: string, perPage: number): Promise<{processed: number, deleted: number, failed: number}> {
+  console.log(chalk.blue(`\nProcessing media items for language: ${language.toUpperCase()}`));
+  
+  let page = 1;
+  let hasMore = true;
+  let processedCount = 0;
+  let deletedCount = 0;
+  let failedCount = 0;
+  const processedIds = new Set<number>();
+  
+  // Try to get the total count first
+  try {
+    const countUrl = `${baseUrl}/wp-json/wp/v2/media?per_page=1&lang=${language}`;
+    const countResponse = await fetchJSON(countUrl, { method: 'HEAD' });
+    const totalCount = parseInt(countResponse.headers?.get('X-WP-Total') || '0', 10);
+    
+    if (totalCount === 0) {
+      console.log(chalk.yellow(`  No media items found for language: ${language.toUpperCase()}`));
+      return { processed: 0, deleted: 0, failed: 0 };
+    }
+    
+    console.log(chalk.blue(`  Found ${totalCount} media items to process`));
+    const totalPages = Math.ceil(totalCount / perPage);
+    console.log(chalk.blue(`  Will process ${totalPages} page(s) with ${perPage} items per page`));
+  } catch (error) {
+    console.log(chalk.yellow(`  Could not determine total count: ${error}`));
+    // Continue anyway, we'll stop when we get no more results
+  }
+  
+  while (hasMore) {
+    try {
+      console.log(chalk.dim(`  Processing page ${page}...`));
+      
+      // Fetch media items for this page
+      const url = `${baseUrl}/wp-json/wp/v2/media?per_page=${perPage}&page=${page}&lang=${language}`;
+      const mediaItems = await retryOperation(
+        async () => await fetchJSON(url),
+        maxRetries,
+        `fetch media items page ${page}`
+      );
+      
+      // If we got no items, we're done
+      if (!mediaItems || !Array.isArray(mediaItems) || mediaItems.length === 0) {
+        console.log(chalk.dim(`  No more media items found on page ${page}`));
+        hasMore = false;
+        break;
+      }
+      
+      // Process each media item
+      for (const item of mediaItems) {
+        // Skip if we've already processed this ID
+        if (processedIds.has(item.id)) {
+          console.log(chalk.dim(`    Skipping already processed media ID ${item.id}`));
+          continue;
+        }
+        
+        processedIds.add(item.id);
+        processedCount++;
+        
+        // Delete the media item
+        console.log(chalk.dim(`    Deleting media ID ${item.id} (${item.title?.rendered || 'No title'})...`));
+        
+        try {
+          // Delete across all languages
+          const deleted = await deleteMediaItemInAllLanguages(item.id);
+          
+          if (deleted) {
+            deletedCount++;
+            
+            // Delete physical files if they exist
+            if (item.source_url) {
+              const filePaths = getPhysicalFilePath(item.source_url, thoroughFlag);
+              if (filePaths.length > 0) {
+                const deletedFiles = deletePhysicalFiles(filePaths);
+                console.log(chalk.dim(`      Deleted ${deletedFiles} physical file(s)`));
+              }
+            }
+          } else {
+            failedCount++;
+            console.log(chalk.yellow(`    ⚠️ Failed to delete media item ID ${item.id}`));
+          }
+        } catch (error) {
+          failedCount++;
+          console.log(chalk.yellow(`    ⚠️ Error deleting media item ${item.id}: ${error}`));
+        }
+      }
+      
+      // Move to next page
+      page++;
+      
+      // If we got fewer items than perPage, we've reached the end
+      if (mediaItems.length < perPage) {
+        hasMore = false;
+      }
+    } catch (error) {
+      console.log(chalk.red(`  ❌ Error fetching media items page ${page}: ${error}`));
+      hasMore = false;
+    }
+  }
+  
+  console.log(chalk.green(`  ✅ Completed processing ${language.toUpperCase()}: ${deletedCount}/${processedCount} media items deleted`));
+  if (failedCount > 0) console.log(chalk.red(`    Failed to delete ${failedCount} media items`));
+  
+  return {
+    processed: processedCount,
+    deleted: deletedCount,
+    failed: failedCount
+  };
+}
 
 /**
  * Clean up media items by their IDs directly
@@ -419,6 +639,10 @@ async function cleanupRemainingMediaItems(slug: string): Promise<void> {
   // Second approach: Direct filename search which can be more accurate
   const filenameSearchUrl = `${baseUrl}/wp-json/wp/v2/media?search=${slug}&per_page=100&orderby=id&media_type=image`;
   
+  // Third approach: Search for language-specific variations with numbered suffixes
+  // WPML often adds -2, -3, etc. to translated media items
+  const suffixSearchUrl = `${baseUrl}/wp-json/wp/v2/media?search=${slug}-&per_page=100&orderby=id&media_type=image`;
+  
   // Track all media items found to avoid duplicates
   const processedMediaIds = new Set<number>();
   let totalFound = 0;
@@ -570,6 +794,87 @@ async function cleanupRemainingMediaItems(slug: string): Promise<void> {
     console.log(chalk.yellow(`⚠️ Error searching for media items by filename: ${error}`));
   }
   
+  // Third approach: Search for language-specific variations with numbered suffixes
+  try {
+    const suffixMediaItems = await retryOperation(
+      async () => await fetchJSON(suffixSearchUrl),
+      maxRetries,
+      `search for media items with language-specific suffixes`
+    );
+    
+    if (Array.isArray(suffixMediaItems) && suffixMediaItems.length > 0) {
+      // Filter items to only include those with filenames containing the slug with a suffix
+      // This will match patterns like slug-2, slug-3, etc. which WPML commonly uses
+      const suffixPattern = new RegExp(`${slug}-\\d+`, 'i');
+      const matchingItems = suffixMediaItems.filter(item => 
+        item.source_url && 
+        (suffixPattern.test(item.source_url) || 
+         // Also match language-specific paths like /en/slug/ or /de/slug/
+         /\/[a-z]{2}\/.*?\//i.test(item.source_url) && 
+         item.source_url.toLowerCase().includes(slug.toLowerCase())) &&
+        !processedMediaIds.has(item.id)
+      );
+      
+      if (matchingItems.length > 0) {
+        console.log(chalk.yellow(`Found ${matchingItems.length} media items with language-specific variations of ${slug}`));
+        
+        // Group by filename
+        const suffixByFilename = new Map<string, Array<any>>();
+        
+        for (const item of matchingItems) {
+          if (!item.source_url) continue;
+          
+          const filename = path.basename(item.source_url);
+          if (!suffixByFilename.has(filename)) {
+            suffixByFilename.set(filename, []);
+          }
+          suffixByFilename.get(filename)!.push(item);
+        }
+        
+        // Process each unique filename
+        for (const [filename, items] of suffixByFilename.entries()) {
+          console.log(chalk.blue(`Processing ${items.length} language-specific instances of file: ${filename}`));
+          
+          for (const item of items) {
+            if (item.id && !processedMediaIds.has(item.id)) {
+              processedMediaIds.add(item.id);
+              totalFound++;
+              
+              try {
+                // Delete directly across all languages at once
+                const deleted = await deleteMediaItemInAllLanguages(item.id);
+                
+                if (deleted) {
+                  console.log(chalk.green(`✓ Deleted language-specific media item: ${item.title?.rendered || filename} (ID: ${item.id})`));
+                  totalDeleted++;
+                  
+                  // Delete physical files if they exist
+                  if (item.source_url) {
+                    const filePaths = getPhysicalFilePath(item.source_url, thoroughFlag);
+                    if (filePaths.length > 0) {
+                      const deletedCount = deletePhysicalFiles(filePaths);
+                      console.log(chalk.green(`✓ Deleted ${deletedCount} physical files for: ${filename}`));
+                    }
+                  }
+                } else {
+                  console.log(chalk.yellow(`⚠️ Failed to delete language-specific media item ID ${item.id}`));
+                }
+              } catch (error) {
+                console.log(chalk.yellow(`⚠️ Error deleting language-specific media item ${item.id}: ${error}`));
+              }
+            }
+          }
+        }
+      } else {
+        console.log(chalk.dim(`No language-specific media items found with variations of ${slug}`));
+      }
+    } else {
+      console.log(chalk.dim(`No media items found with language-specific suffixes for ${slug}`));
+    }
+  } catch (error) {
+    console.log(chalk.yellow(`⚠️ Error searching for media items with language-specific suffixes: ${error}`));
+  }
+  
   // Print summary of cleanup results
   console.log(chalk.cyan(`\nMedia cleanup summary for ${slug}:`));
   console.log(chalk.green(`✓ Total media items found: ${totalFound}`));
@@ -662,7 +967,7 @@ async function deleteAllMediaForProduct(productSlug: string): Promise<void> {
             const mediaTitle = item.title?.rendered || 'Untitled';
             
             try {
-              // Delete across all languages at once
+              // Delete across all languages
               const deleted = await deleteMediaItemInAllLanguages(mediaId);
               
               if (deleted) {
@@ -788,6 +1093,272 @@ Checking for physical files matching: ${sanitizedSlug}`));
 ✓ Media cleanup complete for product: ${productSlug}`));
   } catch (error: any) {
     console.log(chalk.red(`❌ Error during media cleanup: ${error.message || error}`));
+  }
+}
+
+/**
+ * Check the count of media items in WordPress
+ * This will query the WordPress REST API to get the total count of media items
+ * across all languages and display the results without deleting anything
+ * 
+ * Enhanced to check specific media items and language variations
+ * 
+ * @returns {Promise<void>}
+ */
+async function checkMediaCount(): Promise<void> {
+  // Check if we're targeting a specific language
+  const targetLanguage: string = languageFlag || 'all';
+
+  console.log(chalk.blue(`\nFetching media items${targetLanguage !== 'all' ? ` for language: ${targetLanguage.toUpperCase()}` : ''}...`));
+  
+  try {
+    // Get the base URL for the WordPress site
+    const baseUrl = getImportBaseUrl();
+    
+    // Use curl to get reliable header information
+    const curlCommand = `curl -s -I -u "${process.env.WP_USERNAME || 'mantas'}:${process.env.WP_PASSWORD || '3AMD VxIA FKiY p9Su LVpr 4hUo'}" "${baseUrl}/wp-json/wp/v2/media?per_page=1&lang=${targetLanguage}" | grep -i x-wp-total`;
+    
+    try {
+      const result = execSync(curlCommand, { encoding: 'utf8' });
+      
+      // Extract the count from the header
+      const match = result.match(/X-WP-Total:\s*(\d+)/i);
+      const totalCount = match ? parseInt(match[1], 10) : 0;
+      
+      console.log(chalk.green(`\n✓ Total media items for ${targetLanguage === 'all' ? 'all languages' : `language ${targetLanguage.toUpperCase()}`}: ${chalk.bold(totalCount.toString())}`));
+      
+      // If we're checking all languages but got 0, check individual languages
+      // This is to work around a potential WPML bug where lang=all returns 0 even when items exist
+      if (targetLanguage === 'all') {
+        // Check for media items in specific languages
+        const languages = ['en', 'lt', 'lv', 'ru', 'de'];
+        console.log(chalk.blue(`\nChecking media count in each language...`));
+        
+        let totalAcrossLanguages = 0;
+        let foundItems = false;
+        
+        for (const lang of languages) {
+          try {
+            const langCommand = `curl -s -I -u "${process.env.WP_USERNAME || 'mantas'}:${process.env.WP_PASSWORD || '3AMD VxIA FKiY p9Su LVpr 4hUo'}" "${baseUrl}/wp-json/wp/v2/media?per_page=1&lang=${lang}" | grep -i x-wp-total`;
+            const langResult = execSync(langCommand, { encoding: 'utf8' });
+            
+            // Extract the count from the header
+            const langMatch = langResult.match(/X-WP-Total:\s*(\d+)/i);
+            const langCount = langMatch ? parseInt(langMatch[1], 10) : 0;
+            
+            console.log(chalk.cyan(`  - ${lang.toUpperCase()}: ${langCount} media items`));
+            
+            if (langCount > 0) {
+              totalAcrossLanguages += langCount;
+              foundItems = true;
+            }
+          } catch (error) {
+            console.log(chalk.yellow(`  - ${lang.toUpperCase()}: Error checking count`));
+          }
+        }
+        
+        if (foundItems) {
+          console.log(chalk.green(`\n✓ Total across all languages: ${chalk.bold(totalAcrossLanguages.toString())} media items`));
+          
+          if (totalCount === 0 && totalAcrossLanguages > 0) {
+            console.log(chalk.yellow(`\n⚠️ INCONSISTENCY DETECTED: API reports 0 items with lang=all, but ${totalAcrossLanguages} items found across individual languages.`));
+            console.log(chalk.yellow(`This is likely a WPML REST API issue. When deleting media, use the --language flag to target specific languages.`));
+          }
+        } else if (totalCount === 0) {
+          console.log(chalk.green(`\n✓ No media items found in any language. Nothing to delete.`));
+          return;
+        }
+      } else if (totalCount === 0) {
+        console.log(chalk.green(`\n✓ No media items found for language ${targetLanguage.toUpperCase()}. Nothing to delete.`));
+        return;
+      }
+      
+      // Check for specific media items we know exist
+      console.log(chalk.blue(`\nChecking for specific media items...`));
+      const specificMediaChecks = [
+        { name: 'medaus-rinkinys-v9', search: 'medaus-rinkinys-v9' },
+        { name: 'rinkinys', search: 'rinkinys' },
+        { name: 'medaus', search: 'medaus' }
+      ];
+      
+      for (const check of specificMediaChecks) {
+        try {
+          const searchCommand = `curl -s -u "${process.env.WP_USERNAME || 'mantas'}:${process.env.WP_PASSWORD || '3AMD VxIA FKiY p9Su LVpr 4hUo'}" "${baseUrl}/wp-json/wp/v2/media?search=${check.search}&per_page=5"`;
+          const searchResult = execSync(searchCommand, { encoding: 'utf8' });
+          const searchItems = JSON.parse(searchResult);
+          
+          if (searchItems && searchItems.length > 0) {
+            console.log(chalk.green(`  ✓ Found ${searchItems.length} items matching '${check.name}':`));
+            searchItems.forEach((item: any, idx: number) => {
+              console.log(chalk.cyan(`    - ID: ${item.id}, Title: ${item.title?.rendered || 'No title'}`));
+            });
+          } else {
+            console.log(chalk.yellow(`  ✗ No items found matching '${check.name}'`));
+          }
+        } catch (error) {
+          console.log(chalk.yellow(`  ✗ Error searching for '${check.name}': ${error}`));
+        }
+      }
+      
+      // If there are media items, fetch the first page to show some examples
+      if (totalCount > 0) {
+        try {
+          // Use curl to get the actual media items
+          const curlMediaCommand = `curl -s -u "${process.env.WP_USERNAME || 'mantas'}:${process.env.WP_PASSWORD || '3AMD VxIA FKiY p9Su LVpr 4hUo'}" "${baseUrl}/wp-json/wp/v2/media?per_page=5&lang=${targetLanguage}"`;
+          const mediaResult = execSync(curlMediaCommand, { encoding: 'utf8' });
+          const mediaItems = JSON.parse(mediaResult);
+          
+          console.log(chalk.blue(`\nShowing first ${Math.min(5, mediaItems.length)} media items:`));
+          mediaItems.forEach((item: any, index: number) => {
+            console.log(chalk.cyan(`\n${index + 1}. Media ID: ${item.id}`));
+            console.log(`   Title: ${item.title?.rendered || 'No title'}`); 
+            console.log(`   URL: ${item.source_url || 'No URL'}`); 
+            console.log(`   Date: ${item.date || 'No date'}`); 
+            console.log(`   Media Type: ${item.media_type || 'Unknown'}`); 
+            console.log(`   MIME Type: ${item.mime_type || 'Unknown'}`); 
+          });
+          
+          // Check if there are more pages
+          if (totalCount > 5) {
+            console.log(chalk.yellow(`\n...and ${totalCount - 5} more media items.`));
+          }
+        } catch (error) {
+          console.log(chalk.yellow(`\n⚠️ Could not fetch media items: ${error}`));
+        }
+        
+        // Provide instructions for cleanup
+        console.log(chalk.blue(`\nTo delete all media items, run:`));
+        console.log(`yarn ts-node products/cleanup-media.ts --all-media`); 
+        console.log(chalk.blue(`\nTo delete specific media items by ID, run:`));
+        console.log(`yarn ts-node products/cleanup-media.ts --media-ids <id1,id2,...>`); 
+      } else {
+        console.log(chalk.green(`\n✓ No media items found in WordPress.`));
+      }
+      
+      // Check if there are physical files on the server
+      console.log(chalk.blue(`\nChecking for physical media files on the server...`));
+      
+      // Get the uploads directory - try both local and remote paths
+      const possibleUploadDirs = [
+        '/var/www/html/wp-content/uploads',  // Standard WordPress path
+        '/Users/mantas/Sites/wpml-woo-mnt-blocksy/wp-content/uploads', // Local development path
+        path.join(process.cwd(), '..', 'wpml-woo-mnt-blocksy', 'wp-content', 'uploads') // Relative path
+      ];
+      
+      let uploadsDir = '';
+      for (const dir of possibleUploadDirs) {
+        if (fs.existsSync(dir)) {
+          uploadsDir = dir;
+          break;
+        }
+      }
+      
+      if (uploadsDir) {
+        console.log(chalk.dim(`Found uploads directory at: ${uploadsDir}`));
+        
+        // Count files in the uploads directory recursively
+        try {
+          const result = execSync(`find "${uploadsDir}" -type f -not -path "*/\.*" | wc -l`, { encoding: 'utf8' });
+          const fileCount = parseInt(result.trim(), 10);
+          
+          console.log(chalk.green(`✓ Total files in uploads directory: ${chalk.bold(fileCount.toString())}`));
+          
+          // Show file types breakdown
+          const fileTypesResult = execSync(
+            `find "${uploadsDir}" -type f -not -path "*/\.*" | grep -o '\\.[^.]*$' | sort | uniq -c | sort -nr`, 
+            { encoding: 'utf8' }
+          );
+          
+          console.log(chalk.blue(`\nFile types breakdown:`));
+          console.log(fileTypesResult);
+        } catch (error) {
+          console.log(chalk.yellow(`⚠️ Could not count files in uploads directory: ${error}`));
+        }
+      } else {
+        console.log(chalk.yellow(`⚠️ Could not find WordPress uploads directory. Tried paths:\n${possibleUploadDirs.join('\n')}`));
+      }
+    } catch (error: any) {
+      console.error(chalk.red(`❌ Error getting media count: ${error.message || error}`));
+      console.log(chalk.yellow(`\nTrying alternative method to check media count...`));
+      
+      try {
+        // Try using wp-cli if available
+        const wpCliCommand = `wp media list --format=count --allow-root --path=/var/www/html`;
+        console.log(chalk.dim(`Running: ${wpCliCommand}`));
+        const wpResult = execSync(wpCliCommand, { encoding: 'utf8' });
+        console.log(chalk.green(`\n✓ WP-CLI reports ${chalk.bold(wpResult.trim())} media items`));
+      } catch (wpError) {
+        console.log(chalk.yellow(`\n⚠️ Could not run WP-CLI: ${wpError}`));
+        
+        // Try direct database query as last resort
+        try {
+          console.log(chalk.yellow(`\nAttempting direct database query...`));
+          const dbCommand = `mysql -u root -e "SELECT COUNT(*) FROM wp_posts WHERE post_type='attachment'" wordpress`;
+          const dbResult = execSync(dbCommand, { encoding: 'utf8' });
+          console.log(chalk.green(`\n✓ Database query reports media items:\n${dbResult}`));
+        } catch (dbError) {
+          console.log(chalk.yellow(`\n⚠️ Could not fetch media items: ${dbError}`));
+        }
+      }
+      
+      // Check if there are physical files on the server
+      console.log(chalk.blue(`\nChecking for physical media files on the server...`));
+      
+      // Check uploads directory
+      try {
+        const uploadsDir = '/var/www/html/wp-content/uploads';
+        console.log(chalk.blue(`Checking files in ${uploadsDir}...`));
+        
+        // Count files by type
+        const findCommand = `find ${uploadsDir} -type f | grep -E '\.(jpg|jpeg|png|gif|webp|svg|pdf)$' | wc -l`;
+        const fileCount = execSync(findCommand, { encoding: 'utf8' });
+        console.log(chalk.cyan(`Found ${fileCount.trim()} media files on disk`));
+        
+        // Count by file type
+        const fileTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'pdf'];
+        fileTypes.forEach(type => {
+          try {
+            const typeCommand = `find ${uploadsDir} -type f -name "*.${type}" | wc -l`;
+            const typeCount = execSync(typeCommand, { encoding: 'utf8' });
+            console.log(chalk.cyan(`  - ${type}: ${typeCount.trim()} files`));
+          } catch (e) {
+            console.log(chalk.yellow(`  - ${type}: Could not count`));
+          }
+        });
+      } catch (error) {
+        console.log(chalk.yellow(`⚠️ Error checking physical files: ${error}`));
+      }
+    }
+  } catch (error) {
+    console.error(chalk.red(`❌ Error checking media count: ${error}`));
+  }
+}
+
+// Try a direct check for a specific media item
+async function checkSpecificMediaItem(slug: string): Promise<void> {
+  try {
+    const baseUrl = getImportBaseUrl();
+    console.log(chalk.blue(`\nDirectly checking for '${slug}' media item...`));
+    const directCommand = `curl -s -u "${process.env.WP_USERNAME || 'mantas'}:${process.env.WP_PASSWORD || '3AMD VxIA FKiY p9Su LVpr 4hUo'}" "${baseUrl}/wp-json/wp/v2/media?slug=${slug}"`;
+    const directResult = execSync(directCommand, { encoding: 'utf8' });
+    const directItems = JSON.parse(directResult);
+    
+    if (directItems && directItems.length > 0) {
+      console.log(chalk.green(`✓ Found the specific media item '${slug}'!`));
+      console.log(chalk.cyan(`  - ID: ${directItems[0].id}`));
+      console.log(chalk.cyan(`  - Title: ${directItems[0].title?.rendered || 'No title'}`));
+      console.log(chalk.cyan(`  - URL: ${directItems[0].source_url || 'No URL'}`));
+      console.log(chalk.cyan(`  - Status: ${directItems[0].status || 'Unknown'}`));
+      
+      // Provide command to delete this specific item
+      console.log(chalk.blue(`
+To delete this specific item, run:`));
+      console.log(`yarn ts-node products/cleanup-media.ts --media-ids ${directItems[0].id} --confirm`);
+    } else {
+      console.log(chalk.yellow(`✗ Could not find the specific media item '${slug}'`));
+    }
+  } catch (directError) {
+    console.log(chalk.yellow(`⚠️ Error checking for specific media item: ${directError}`));
   }
 }
 

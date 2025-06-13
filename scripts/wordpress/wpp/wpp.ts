@@ -486,6 +486,8 @@ async function showOperationsMenu(): Promise<void> {
     { id: "delete-import", name: `Delete & Import ${selectedContentType}`, description: `Delete all ${selectedContentType} and then import from export file` },
     { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from ${getImportSite().name}` },
     { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
+    // Add media cleanup option only for products
+    ...(selectedContentType === "products" ? [{ id: "cleanup-media", name: "Cleanup Media", description: "Delete orphaned media items across all languages" }] : []),
     { id: "complete", name: "Complete workflow", description: "Run the complete export-test-import workflow" },
     { id: "select-type", name: "Change content type", description: "Select a different content type to manage" },
     { id: "exit", name: "Exit", description: "Exit the program" },
@@ -919,6 +921,142 @@ async function showOperationsMenu(): Promise<void> {
     displayHeader(`Importing ${contentTypeName}`);
     await runScript(scriptPath, importArgs);
     console.log(chalk.green.bold(`✓ ${contentTypeName} import completed successfully!`));
+    
+    // Return to the operations menu after completion
+    console.log(chalk.blue("\nPress Enter to return to the menu..."));
+    const rlContinue = createPrompt();
+    await new Promise<void>((resolve) => {
+      rlContinue.question("", () => resolve());
+    });
+    rlContinue.close();
+    
+    return await showOperationsMenu();
+  }
+  
+  // Handle cleanup-media operation (products only)
+  if (selectedOperation.id === "cleanup-media") {
+    // This operation is only available for products
+    if (selectedContentType !== "products") {
+      console.error(chalk.red("Media cleanup is only available for products."));
+      return await showOperationsMenu();
+    }
+    
+    // Check if script exists
+    if (!fs.existsSync(productCleanupMediaScript)) {
+      console.error(chalk.red(`Media cleanup script not found at: ${productCleanupMediaScript}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(productCleanupMediaScript)} script first.`));
+      process.exit(1);
+    }
+    
+    displayHeader("Media Cleanup");
+    
+    // Ask for cleanup options
+    const rlCleanupType = createPrompt();
+    console.log(chalk.cyan("Select cleanup type:\n"));
+    console.log(chalk.green("1. ") + chalk.bold("Cleanup by product slug") + chalk.dim(" - Delete media for specific product(s)"));
+    console.log(chalk.green("2. ") + chalk.bold("Cleanup by media IDs") + chalk.dim(" - Delete specific media items by ID"));
+    console.log(chalk.green("3. ") + chalk.bold("Cleanup ALL media") + chalk.dim(" - Delete ALL media items across all languages"));
+    
+    const cleanupTypeAnswer = await new Promise<string>((resolve) => {
+      rlCleanupType.question(chalk.cyan("\nEnter your selection (1-3): "), resolve);
+    });
+    rlCleanupType.close();
+    
+    let cleanupArgs: string[] = [];
+    
+    if (cleanupTypeAnswer === "1") {
+      // Cleanup by product slug
+      const rlSlug = createPrompt();
+      const slugAnswer = await new Promise<string>((resolve) => {
+        rlSlug.question(chalk.yellow("\nEnter product slug(s) separated by commas: "), resolve);
+      });
+      rlSlug.close();
+      
+      if (slugAnswer.trim()) {
+        const slugs = slugAnswer.split(",").map(s => s.trim()).filter(s => s);
+        if (slugs.length > 0) {
+          cleanupArgs = slugs;
+          console.log(chalk.yellow(`Will cleanup media for product(s): ${slugs.join(", ")}`));
+        }
+      } else {
+        console.log(chalk.red("No product slugs provided. Operation cancelled."));
+        return await showOperationsMenu();
+      }
+    } else if (cleanupTypeAnswer === "2") {
+      // Cleanup by media IDs
+      const rlIds = createPrompt();
+      const idsAnswer = await new Promise<string>((resolve) => {
+        rlIds.question(chalk.yellow("\nEnter media IDs separated by commas: "), resolve);
+      });
+      rlIds.close();
+      
+      if (idsAnswer.trim()) {
+        const ids = idsAnswer.split(",").map(s => s.trim()).filter(s => s);
+        if (ids.length > 0) {
+          cleanupArgs = ["--media-ids", ids.join(",")];
+          console.log(chalk.yellow(`Will cleanup media with IDs: ${ids.join(", ")}`));
+        }
+      } else {
+        console.log(chalk.red("No media IDs provided. Operation cancelled."));
+        return await showOperationsMenu();
+      }
+    } else if (cleanupTypeAnswer === "3") {
+      // Cleanup ALL media
+      const rlConfirm = createPrompt();
+      const confirmAnswer = await new Promise<string>((resolve) => {
+        rlConfirm.question(
+          chalk.red("\n⚠️ WARNING: This will DELETE ALL MEDIA ITEMS from the site!\n") +
+          chalk.red("This operation cannot be undone! Are you sure? (yes/no): "),
+          resolve
+        );
+      });
+      rlConfirm.close();
+      
+      if (confirmAnswer.toLowerCase() !== "yes") {
+        console.log(chalk.blue("Operation cancelled."));
+        return await showOperationsMenu();
+      }
+      
+      cleanupArgs = ["--all-media"];
+      console.log(chalk.yellow("Will delete ALL media items from the site."));
+    } else {
+      console.log(chalk.red("Invalid selection. Operation cancelled."));
+      return await showOperationsMenu();
+    }
+    
+    // Ask for thorough cleanup
+    const rlThorough = createPrompt();
+    const thoroughAnswer = await new Promise<string>((resolve) => {
+      rlThorough.question(chalk.yellow("\nPerform thorough cleanup (search in additional directories)? (y/N): "), resolve);
+    });
+    rlThorough.close();
+    
+    if (thoroughAnswer.toLowerCase() === "y") {
+      cleanupArgs.push("--thorough");
+      console.log(chalk.yellow("Will perform thorough cleanup in additional directories."));
+    }
+    
+    // Ask for confirmation skip
+    const rlSkipConfirm = createPrompt();
+    const skipConfirmAnswer = await new Promise<string>((resolve) => {
+      rlSkipConfirm.question(chalk.yellow("\nSkip confirmation prompts during cleanup? (y/N): "), resolve);
+    });
+    rlSkipConfirm.close();
+    
+    if (skipConfirmAnswer.toLowerCase() === "y") {
+      cleanupArgs.push("--confirm");
+      console.log(chalk.yellow("Will skip confirmation prompts during cleanup."));
+    }
+    
+    // Run the cleanup script
+    console.log(chalk.cyan("\n🧹 Running media cleanup..."));
+    
+    try {
+      await runScript(productCleanupMediaScript, cleanupArgs);
+      console.log(chalk.green.bold("\n✓ Media cleanup completed successfully!"));
+    } catch (error) {
+      console.error(chalk.red("Error during media cleanup:"), error);
+    }
     
     // Return to the operations menu after completion
     console.log(chalk.blue("\nPress Enter to return to the menu..."));

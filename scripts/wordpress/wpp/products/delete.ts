@@ -1,8 +1,8 @@
 import fetch from "node-fetch";
 import config from "../config";
-import { getImportBaseUrl, getImportCredentials, getImportSite } from "../utils/config-utils";
-import chalk from "chalk";
+import { getImportBaseUrl, getImportSite, getImportCredentials } from "../utils/config-utils";
 import { fetchJSON, getSiteName } from "../utils/api";
+import chalk from "chalk";
 import readline from "readline";
 import path from "path";
 import fs from "fs";
@@ -22,6 +22,52 @@ let thoroughCleanupConfirmed = false;
 
 // Keep track of already deleted product IDs to avoid duplicate deletions
 const deletedProductIds = new Set<number>();
+
+/**
+ * Check for orphaned media files in specific languages
+ */
+async function checkOrphanedMediaInLanguages(): Promise<{[key: string]: number}> {
+  console.log(chalk.cyan(`Checking for orphaned media files in specific languages...`));
+  
+  // Get credentials from the config utils
+  const credentials = getImportCredentials();
+  const authString = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
+  
+  // Check for media in specific languages
+  const languagesToCheck = ['de', 'ru', 'lv'];
+  const results: {[key: string]: number} = {};
+  
+  for (const lang of languagesToCheck) {
+    try {
+      console.log(chalk.dim(`Checking for media in ${lang} language...`));
+      const mediaCommand = `curl -s -H "Authorization: Basic ${authString}" "${getImportBaseUrl()}/wp-json/wp/v2/media?lang=${lang}&per_page=100"`;
+      const mediaResult = execSync(mediaCommand, { encoding: 'utf8' });
+      
+      try {
+        const mediaItems = JSON.parse(mediaResult);
+        if (Array.isArray(mediaItems) && mediaItems.length > 0) {
+          results[lang] = mediaItems.length;
+          console.log(chalk.yellow(`Found ${mediaItems.length} media items in ${lang} language.`));
+          
+          // Show a sample of media items
+          if (mediaItems.length > 0) {
+            const sample = mediaItems[0];
+            console.log(chalk.dim(`Sample media item: ID ${sample.id}, Title: "${sample.title?.rendered || 'Unknown'}", URL: ${sample.source_url || 'Unknown'}`));
+          }
+        } else {
+          results[lang] = 0;
+          console.log(chalk.dim(`No media items found in ${lang} language.`));
+        }
+      } catch (parseError) {
+        console.log(chalk.yellow(`Error parsing media API response for ${lang}: ${parseError}`));
+      }
+    } catch (mediaError) {
+      console.log(chalk.yellow(`Failed to check media in ${lang} language: ${mediaError}`));
+    }
+  }
+  
+  return results;
+}
 
 async function deleteAllProducts(): Promise<void> {
   // Get site name first
@@ -121,7 +167,43 @@ async function deleteAllProducts(): Promise<void> {
     const products = await fetchAllProducts();
     
     if (products.length === 0) {
-      console.log(chalk.yellow("No products found."));
+      console.log(chalk.yellow(`No products found.`));
+      
+      // Check for orphaned media files in specific languages
+      console.log(chalk.cyan(`\nChecking for orphaned media files in specific languages...`));
+      const mediaResults = await checkOrphanedMediaInLanguages();
+      
+      // Check if any language has orphaned media
+      const totalOrphanedMedia = Object.values(mediaResults).reduce((sum, count) => sum + count, 0);
+      
+      if (totalOrphanedMedia > 0) {
+        console.log(chalk.yellow(`\nAlthough no products were found, there are ${totalOrphanedMedia} orphaned media files:`));
+        
+        // Show breakdown by language
+        Object.entries(mediaResults).forEach(([lang, count]) => {
+          if (count > 0) {
+            console.log(chalk.yellow(`  - ${lang}: ${count} media items`));
+          }
+        });
+        
+        console.log(chalk.yellow(`\nConsider running the media cleanup script to remove these orphaned files:`));
+        console.log(chalk.cyan(`yarn ts-node products/cleanup-media.ts --confirm`));
+        
+        // Suggest language-specific cleanup if needed
+        const languagesWithMedia = Object.entries(mediaResults)
+          .filter(([_, count]) => count > 0)
+          .map(([lang, _]) => lang);
+        
+        if (languagesWithMedia.length > 0) {
+          console.log(chalk.yellow(`\nFor language-specific cleanup, use:`));
+          languagesWithMedia.forEach(lang => {
+            console.log(chalk.cyan(`yarn ts-node products/cleanup-media.ts --lang=${lang} --confirm`));
+          });
+        }
+      } else {
+        console.log(chalk.green(`No orphaned media files found in any language. The site is clean.`));
+      }
+      
       return;
     }
     
@@ -204,6 +286,15 @@ async function deleteAllProducts(): Promise<void> {
  * Fetch all products from all available languages
  */
 async function fetchAllProducts(): Promise<any[]> {
+  // First try the direct WooCommerce API approach with consumer keys
+  // This is the most reliable method and avoids WPML language parameter issues
+  console.log(chalk.cyan(`Trying direct WooCommerce API approach first...`));
+  const directProducts = await fetchProductsDirectWooCommerce();
+  if (directProducts.length > 0) {
+    return directProducts;
+  }
+  
+  // If direct approach fails, try the standard approach with WPML
   let allProducts: any[] = [];
   let page = 1;
   let hasMorePages = true;
@@ -243,9 +334,144 @@ async function fetchAllProducts(): Promise<any[]> {
     }
   }
   
+  // If we found 0 products with lang=all, it might be due to the WPML REST API bug
+  // Try fetching by individual languages as a fallback
+  if (allProducts.length === 0) {
+    console.log(chalk.yellow(`No products found with lang=all parameter. This might be due to a WPML REST API bug.`));
+    console.log(chalk.yellow(`Falling back to fetching products by individual languages...`));
+    return fetchProductsByLanguage();
+  }
+  
   console.log(chalk.green(`✓ Found a total of ${allProducts.length} unique products across all languages`));
   
   return allProducts;
+}
+
+/**
+ * Check if products exist using multiple methods
+ */
+async function checkProductsExist(): Promise<boolean> {
+  try {
+    // Get credentials from the config utils
+    const credentials = getImportCredentials();
+    const authString = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
+    
+    console.log(chalk.cyan(`Checking if products exist using multiple methods...`));
+    
+    // Method 1: Try standard WordPress REST API to count products
+    try {
+      console.log(chalk.dim(`Method 1: Using WordPress REST API to count products...`));
+      const wpCommand = `curl -s -H "Authorization: Basic ${authString}" "${getImportBaseUrl()}/wp-json/wp/v2/product?per_page=1"`;
+      const wpResult = execSync(wpCommand, { encoding: 'utf8' });
+      
+      try {
+        const wpProducts = JSON.parse(wpResult);
+        if (Array.isArray(wpProducts) && wpProducts.length > 0) {
+          console.log(chalk.green(`✓ Found products using WordPress REST API`));
+          return true;
+        }
+      } catch (parseError) {
+        console.log(chalk.yellow(`Error parsing WordPress API response`));
+      }
+    } catch (wpError) {
+      console.log(chalk.yellow(`WordPress REST API check failed`));
+    }
+    
+    // Method 2: Try direct SQL query via wp-json/wpp/v1/sql endpoint (if available)
+    try {
+      console.log(chalk.dim(`Method 2: Checking database directly via custom endpoint...`));
+      const sqlCommand = `curl -s -H "Authorization: Basic ${authString}" -X POST -H "Content-Type: application/json" -d '{"query":"SELECT COUNT(*) as count FROM wp_posts WHERE post_type='product'"}' "${getImportBaseUrl()}/wp-json/wpp/v1/sql"`;
+      const sqlResult = execSync(sqlCommand, { encoding: 'utf8' });
+      
+      try {
+        const sqlData = JSON.parse(sqlResult);
+        if (sqlData && sqlData.results && sqlData.results[0] && sqlData.results[0].count > 0) {
+          console.log(chalk.green(`✓ Found ${sqlData.results[0].count} products using SQL query`));
+          return true;
+        }
+      } catch (parseError) {
+        console.log(chalk.yellow(`Error parsing SQL query response or endpoint not available`));
+      }
+    } catch (sqlError) {
+      console.log(chalk.yellow(`SQL query check failed or endpoint not available`));
+    }
+    
+    // Method 3: Try WooCommerce API with different parameters
+    try {
+      console.log(chalk.dim(`Method 3: Using WooCommerce API with different parameters...`));
+      // Try without language parameter
+      const wcCommand = `curl -s -H "Authorization: Basic ${authString}" "${getImportBaseUrl()}/wp-json/wc/v3/products?per_page=1"`;
+      const wcResult = execSync(wcCommand, { encoding: 'utf8' });
+      
+      try {
+        const wcProducts = JSON.parse(wcResult);
+        if (Array.isArray(wcProducts) && wcProducts.length > 0) {
+          console.log(chalk.green(`✓ Found products using WooCommerce API`));
+          return true;
+        }
+      } catch (parseError) {
+        console.log(chalk.yellow(`Error parsing WooCommerce API response`));
+      }
+    } catch (wcError) {
+      console.log(chalk.yellow(`WooCommerce API check failed`));
+    }
+    
+    console.log(chalk.red(`✗ No products found using any method`));
+    return false;
+  } catch (error) {
+    console.log(chalk.red(`Error checking for products: ${error}`));
+    return false;
+  }
+}
+
+/**
+ * Fetch products directly using WooCommerce REST API with basic authentication
+ */
+async function fetchProductsDirectWooCommerce(): Promise<any[]> {
+  try {
+    // First check if products exist at all
+    const productsExist = await checkProductsExist();
+    if (!productsExist) {
+      console.log(chalk.yellow(`No products found in the system. Nothing to delete.`));
+      return [];
+    }
+    
+    // Get credentials from the config utils
+    const credentials = getImportCredentials();
+    
+    console.log(chalk.cyan(`Trying direct WooCommerce API with basic authentication...`));
+    
+    // Use curl with basic authentication
+    const authString = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
+    const curlCommand = `curl -s -H "Authorization: Basic ${authString}" "${getImportBaseUrl()}/wp-json/wc/v3/products?per_page=100"`;
+    
+    console.log(chalk.dim(`Using credentials for ${credentials.username}`));
+    
+    const result = execSync(curlCommand, { encoding: 'utf8' });
+    
+    try {
+      const products = JSON.parse(result);
+      
+      if (Array.isArray(products) && products.length > 0) {
+        console.log(chalk.green(`✓ Found ${products.length} products using direct WooCommerce API`));
+        return products;
+      } else if (products.code && products.message) {
+        // This is an error response
+        console.log(chalk.yellow(`API returned an error: ${products.code} - ${products.message}`));
+        return [];
+      } else {
+        console.log(chalk.yellow(`No products found using direct WooCommerce API`));
+        return [];
+      }
+    } catch (parseError) {
+      console.log(chalk.yellow(`Error parsing API response: ${parseError}`));
+      console.log(chalk.dim(`Raw response: ${result.substring(0, 200)}...`));
+      return [];
+    }
+  } catch (error) {
+    console.log(chalk.yellow(`Error using direct WooCommerce API: ${error}`));
+    return [];
+  }
 }
 
 /**
@@ -258,7 +484,13 @@ async function fetchProductsByLanguage(): Promise<any[]> {
   
   console.log(chalk.cyan(`Fetching products from each language individually...`));
   
-  // Fetch products from each language
+  // Try direct WooCommerce API first with consumer keys
+  const directProducts = await fetchProductsDirectWooCommerce();
+  if (directProducts.length > 0) {
+    return directProducts;
+  }
+  
+  // If direct API fails, try with each language
   for (const lang of languages) {
     let page = 1;
     let hasMorePages = true;
@@ -270,6 +502,7 @@ async function fetchProductsByLanguage(): Promise<any[]> {
       const url = `${getImportBaseUrl()}/wp-json/wc/v3/products?per_page=100&page=${page}${langParam}`;
       
       try {
+        console.log(chalk.dim(`Trying language: ${langDisplay}, page: ${page}`));
         const products = await fetchJSON(url);
         
         if (products.length === 0) {
