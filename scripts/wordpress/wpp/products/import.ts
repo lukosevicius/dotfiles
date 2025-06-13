@@ -710,30 +710,26 @@ async function downloadImage(imageUrl: string, fileName: string, options?: {
   skipImageDownload?: boolean;
 }): Promise<string> {
   try {
-    // If --skip-image-download is set, don't download images
+    // Skip download if explicitly requested
     if (options?.skipImageDownload) {
-      console.log(`  Skipping image download (--skip-image-download): ${fileName}`);
-      return "";
+      throw new Error("Image download skipped by user request");
     }
-    
-    // First check if the image exists in site-specific temp_images directory
+
+    // Skip download if downloadImages is set to false
+    if (options?.downloadImages === false) {
+      throw new Error("Image download disabled");
+    }
+
+    // Check for site-specific directory first
     const siteLocalImagePath = path.join(siteTempImagesDir, fileName);
     if (fs.existsSync(siteLocalImagePath)) {
-      console.log(`  Image already exists in site-specific directory: ${fileName}`);
       return siteLocalImagePath;
     }
 
     // Check if image exists in legacy temp_images directory as fallback
     const legacyLocalImagePath = path.join(legacyTempImagesDir, fileName);
     if (fs.existsSync(legacyLocalImagePath)) {
-      console.log(`  Image found in legacy directory: ${fileName}`);
       return legacyLocalImagePath;
-    }
-    
-    // If not found in either directory and not using --download-images, skip download unless forced
-    if (!options?.downloadImages) {
-      // Only download if explicitly requested or if no local copy exists
-      console.log(`  Image not found locally, downloading: ${fileName}`);
     }
     
     // Create a file path in the site-specific temp_images directory
@@ -751,7 +747,7 @@ async function downloadImage(imageUrl: string, fileName: string, options?: {
     
     // Save the image to the site-specific directory
     fs.writeFileSync(filePath, imageBuffer);
-    console.log(`  Image downloaded successfully to site-specific directory: ${fileName}`);
+    importStats.images.downloaded++;
     
     // Automatically convert to WebP if it's a supported image format
     const fileExtension = path.extname(fileName).toLowerCase();
@@ -768,26 +764,23 @@ async function downloadImage(imageUrl: string, fileName: string, options?: {
         // Check if cwebp is installed
         try {
           execSync("which cwebp", { stdio: 'ignore' });
+          
+          // Convert to WebP using cwebp
+          execSync(`cwebp -q 80 "${filePath}" -o "${webpOutputPath}"`, { stdio: 'ignore' });
+          
+          if (fs.existsSync(webpOutputPath)) {
+            return webpOutputPath;
+          }
         } catch (error) {
-          console.log("  WebP conversion skipped: cwebp not installed");
-          return filePath;
-        }
-        
-        // Convert to WebP using cwebp
-        console.log(`  Converting to WebP: ${fileName}`);
-        execSync(`cwebp -q 80 "${filePath}" -o "${webpOutputPath}"`, { stdio: 'ignore' });
-        
-        if (fs.existsSync(webpOutputPath)) {
-          console.log(`  WebP conversion successful: ${nameWithoutExt}.webp`);
+          // Continue with the original file if cwebp is not installed
         }
       } catch (conversionError) {
-        console.log(`  WebP conversion failed: ${conversionError instanceof Error ? conversionError.message : String(conversionError)}`);
+        // Continue with the original file if WebP conversion fails
       }
     }
     
     return filePath;
   } catch (error) {
-    console.error(`Error downloading image ${fileName}:`, error);
     throw error;
   }
 }
@@ -797,8 +790,6 @@ async function downloadImage(imageUrl: string, fileName: string, options?: {
  */
 async function uploadImage(filePath: string, fileName: string): Promise<number> {
   try {
-    console.log(`Uploading image: ${fileName}`);
-    
     // Check if file exists and has content
     const stats = fs.statSync(filePath);
     if (stats.size < 100) { // Minimum reasonable size for an image
@@ -814,7 +805,6 @@ async function uploadImage(filePath: string, fileName: string): Promise<number> 
       fs.copyFileSync(filePath, newFilePath);
       filePath = newFilePath;
       fileExt = '.jpg';
-      console.log(`  Converted to .jpg format: ${path.basename(newFilePath)}`);
     }
     
     // Determine mime type based on extension
@@ -867,7 +857,6 @@ async function uploadImage(filePath: string, fileName: string): Promise<number> 
           errorDetails.message && 
           (errorDetails.message.includes("negalite įkelti tokio tipo failų") || 
            errorDetails.message.includes("cannot upload this file type"))) {
-        console.log("  Trying alternative upload method...");
         return await uploadImageAlternative(filePath, fileName);
       }
       
@@ -879,10 +868,9 @@ async function uploadImage(filePath: string, fileName: string): Promise<number> 
     }
     
     const data = await response.json();
-    console.log(`  Success! Uploaded as ID: ${data.id}`);
     return data.id;
   } catch (error) {
-    console.error(`Error uploading image ${fileName}:`, error);
+    importStats.images.failed++;
     throw error;
   }
 }
@@ -895,8 +883,6 @@ async function uploadImageAlternative(
   fileName: string
 ): Promise<number> {
   try {
-    console.log(`  Using alternative upload method for: ${fileName}`);
-    
     // Convert image to base64
     const imageBuffer = fs.readFileSync(filePath);
     const base64Image = imageBuffer.toString('base64');
@@ -956,10 +942,9 @@ async function uploadImageAlternative(
     }
     
     const data = await response.json();
-    console.log(`  Success! Uploaded as ID: ${data.id} (alternative method)`);
     return data.id;
   } catch (error) {
-    console.error(`Error uploading image ${fileName} (alternative method):`, error);
+    importStats.images.failed++;
     throw error;
   }
 }
@@ -982,15 +967,11 @@ async function processImage(
 ): Promise<number | null> {
   try {
     if (!image || !image.src) {
-      console.log("  No image source provided");
       return null;
     }
 
     // Check if we already processed this image ID
     if (image.id && imageMapping[image.id]) {
-      console.log(
-        `  Image already processed (ID: ${image.id} → ${imageMapping[image.id]})`
-      );
       importStats.images.skipped++;
       return imageMapping[image.id];
     }
@@ -1036,47 +1017,48 @@ async function processImage(
     
     let imageToUpload: string | null = null;
     let finalImageName = "";
+    let imageSource = "";
     
     // First priority: Use WebP in site-specific directory if available
     if (fs.existsSync(siteWebpImagePath)) {
-      console.log(`  Using site-specific WebP image: ${path.basename(siteWebpImagePath)}`);
       imageToUpload = siteWebpImagePath;
       finalImageName = path.basename(siteWebpImagePath);
+      imageSource = "site-specific WebP";
     }
     // Second priority: Use WebP in legacy directory if available
     else if (fs.existsSync(legacyWebpImagePath)) {
-      console.log(`  Using legacy WebP image: ${path.basename(legacyWebpImagePath)}`);
       imageToUpload = legacyWebpImagePath;
       finalImageName = path.basename(legacyWebpImagePath);
+      imageSource = "legacy WebP";
     }
     // Third priority: Use regular image in site-specific directory if available
     else if (fs.existsSync(siteRegularImagePath)) {
-      console.log(`  Using site-specific regular image: ${regularImageName}`);
       imageToUpload = siteRegularImagePath;
       finalImageName = regularImageName;
+      imageSource = "site-specific regular";
     }
     // Fourth priority: Use regular image in legacy directory if available
     else if (fs.existsSync(legacyRegularImagePath)) {
-      console.log(`  Using legacy regular image: ${regularImageName}`);
       imageToUpload = legacyRegularImagePath;
       finalImageName = regularImageName;
+      imageSource = "legacy regular";
     }
     // Fifth priority: Download if allowed
     else if (!options?.skipImageDownload) {
-      if (productSlug) {
-        console.log(`  Downloading image for product: ${productSlug}`);
-      } else {
-        console.log(`  Downloading image: ${imageName}`);
+      try {
+        // Download the image with proper naming
+        const downloadName = productSlug ? regularImageName : imageName;
+        imageToUpload = await downloadImage(image.src, downloadName, options);
+        finalImageName = downloadName;
+        imageSource = "downloaded";
+      } catch (downloadError) {
+        // Silently handle download errors
+        importStats.images.failed++;
+        return null;
       }
-      
-      // Download the image with proper naming
-      const downloadName = productSlug ? regularImageName : imageName;
-      imageToUpload = await downloadImage(image.src, downloadName, options);
-      finalImageName = downloadName;
     }
     // Skip if no image available and downloads not allowed
     else {
-      console.log(`  Skipping image download (--skip-image-download): ${imageName}`);
       return null;
     }
 
@@ -1089,13 +1071,16 @@ async function processImage(
       if (image.id) {
         imageMapping[image.id] = newImageId;
       }
+      
+      // Single concise log line with all necessary information
+      console.log(`Image: ${finalImageName} (${imageSource}) → ID: ${newImageId}`);
 
       return newImageId;
     }
     
     return null;
   } catch (error) {
-    console.error("Error processing image:", error);
+    // Silently handle errors and just count them
     importStats.images.failed++;
     return null;
   }
