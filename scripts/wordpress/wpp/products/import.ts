@@ -52,6 +52,14 @@ const imageMapping: Record<number, number> = {};
 const categoryMapping: Record<string, number> = {};
 const categoryLanguageMapping: Record<string, Record<string, number>> = {}; // lang -> slug -> id
 
+// Category mapping file paths
+interface CategoryMappingData {
+  timestamp: string;
+  targetSite: string;
+  mainMapping: Record<string, number>;
+  languageMapping: Record<string, Record<string, number>>;
+}
+
 interface ExportData {
   meta: {
     exported_at: string;
@@ -172,6 +180,7 @@ async function importProducts(): Promise<void> {
   const autoConfirm = process.argv.includes("--yes");
   const downloadImages = process.argv.includes("--download-images");
   const skipImageDownload = process.argv.includes("--skip-image-download");
+  const refreshCategories = process.argv.includes("--refresh-categories"); // New option to force refresh of category mappings
   
   // Import limit option
   let importLimit: number | null = null;
@@ -530,10 +539,104 @@ async function importProductsForLanguage(
 }
 
 /**
+ * Get the path to the category mapping file for a specific site
+ */
+function getCategoryMappingFilePath(siteUrl: string): string {
+  // Extract domain from URL (remove protocol and any trailing slashes)
+  const siteDomain = siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const siteOutputDir = path.join(DEFAULT_PATHS.outputDir, siteDomain);
+  
+  // Create site-specific directory if it doesn't exist
+  if (!fs.existsSync(siteOutputDir)) {
+    fs.mkdirSync(siteOutputDir, { recursive: true });
+  }
+  
+  return path.join(siteOutputDir, 'category-mapping.json');
+}
+
+/**
+ * Save category mappings to a JSON file
+ */
+function saveCategoryMappings(targetSite: string): void {
+  const mappingData: CategoryMappingData = {
+    timestamp: new Date().toISOString(),
+    targetSite,
+    mainMapping: categoryMapping,
+    languageMapping: categoryLanguageMapping
+  };
+  
+  const mappingFilePath = getCategoryMappingFilePath(targetSite);
+  
+  try {
+    fs.writeFileSync(mappingFilePath, JSON.stringify(mappingData, null, 2));
+    console.log(chalk.green(`✓ Saved category mappings to ${mappingFilePath}`));
+  } catch (error) {
+    console.error(chalk.yellow(`⚠️ Failed to save category mappings: ${error instanceof Error ? error.message : String(error)}`));
+  }
+}
+
+/**
+ * Load category mappings from a JSON file if available
+ * @returns true if mappings were loaded successfully, false otherwise
+ */
+function loadCategoryMappings(targetSite: string): boolean {
+  const mappingFilePath = getCategoryMappingFilePath(targetSite);
+  
+  if (!fs.existsSync(mappingFilePath)) {
+    console.log(chalk.yellow(`⚠️ No saved category mappings found at ${mappingFilePath}`));
+    return false;
+  }
+  
+  try {
+    const fileContent = fs.readFileSync(mappingFilePath, 'utf-8');
+    const mappingData: CategoryMappingData = JSON.parse(fileContent);
+    
+    // Check if the mapping is for the correct site
+    if (mappingData.targetSite !== targetSite) {
+      console.log(chalk.yellow(`⚠️ Saved category mappings are for a different site (${mappingData.targetSite}), not using them`));
+      return false;
+    }
+    
+    // Check if the mapping is too old (more than 7 days)
+    const mappingDate = new Date(mappingData.timestamp);
+    const now = new Date();
+    const daysDiff = (now.getTime() - mappingDate.getTime()) / (1000 * 60 * 60 * 24);
+    
+    if (daysDiff > 7) {
+      console.log(chalk.yellow(`⚠️ Saved category mappings are ${Math.floor(daysDiff)} days old, not using them`));
+      return false;
+    }
+    
+    // Load the mappings
+    Object.assign(categoryMapping, mappingData.mainMapping);
+    Object.assign(categoryLanguageMapping, mappingData.languageMapping);
+    
+    console.log(chalk.green(`✓ Loaded category mappings from ${mappingFilePath}`));
+    console.log(chalk.green(`  - Created: ${new Date(mappingData.timestamp).toLocaleString()}`));
+    console.log(chalk.green(`  - Categories: ${Object.keys(categoryMapping).length} in main language`));
+    console.log(chalk.green(`  - Languages: ${Object.keys(categoryLanguageMapping).length}`));
+    
+    return true;
+  } catch (error) {
+    console.error(chalk.yellow(`⚠️ Failed to load category mappings: ${error instanceof Error ? error.message : String(error)}`));
+    return false;
+  }
+}
+
+/**
  * Fetch all categories from the target site and create a mapping of slugs to IDs
  */
 async function fetchAllCategories(): Promise<void> {
   const importSite = getImportSite();
+  const targetSiteUrl = importSite.baseUrl;
+  
+  // Try to load mappings from file first
+  if (loadCategoryMappings(targetSiteUrl)) {
+    // If we successfully loaded mappings, we can skip fetching
+    console.log(chalk.cyan('Using cached category mappings'));
+    return;
+  }
+  
   const languages = [importSite.mainLanguage, ...importSite.otherLanguages];
   
   console.log(chalk.cyan('Fetching all categories from target site to create slug-to-ID mapping...'));
@@ -568,6 +671,9 @@ async function fetchAllCategories(): Promise<void> {
   }
   
   console.log(chalk.green(`✓ Created category mapping with ${Object.keys(categoryMapping).length} main language categories`));
+  
+  // Save the mappings to a file for future use
+  saveCategoryMappings(targetSiteUrl);
 }
 
 /**
@@ -756,15 +862,7 @@ async function createProduct(productData: any, lang: string): Promise<any> {
     console.log(chalk.cyan(`Setting translation_of: ${cleanProductData.translation_of} for product in ${lang}`));
   }
   
-  console.log(`Creating product in language: ${lang}`);
-  
-  // Only log a portion of the product data to avoid console clutter
-  const productDataPreview = { 
-    ...cleanProductData,
-    description: cleanProductData.description ? '(truncated)' : undefined,
-    short_description: cleanProductData.short_description ? '(truncated)' : undefined
-  };
-  console.log(`Product data: ${JSON.stringify(productDataPreview, null, 2).substring(0, 300)}...`);
+  console.log(`Creating product '${cleanProductData.name}' in language: ${lang}`);
   
   try {
     const response = await fetchJSON(url, {
