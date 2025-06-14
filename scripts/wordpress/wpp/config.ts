@@ -97,7 +97,7 @@ const config: Config = {
       description: "Production environment",
       baseUrl: "https://7ievosnamai.lt/",
       username: "sandelis",
-      password: "zc7z 14O8 fhbC CCUR 1zyF MXA6",
+      password: "jKNg FC8o Cd0y 4M5g FXuR SbqY",
       mainLanguage: "lt",
       otherLanguages: ["en", "lv", "ru", "de"],
     },

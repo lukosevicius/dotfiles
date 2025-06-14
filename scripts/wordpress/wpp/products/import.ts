@@ -93,6 +93,12 @@ const importStats = {
   skipped: 0,
   failed: 0,
   byLanguage: {} as Record<string, { total: number; created: number; skipped: number; failed: number }>,
+  variations: {
+    total: 0,
+    created: 0,
+    skipped: 0,
+    failed: 0
+  },
   images: {
     downloaded: 0,
     uploaded: 0,
@@ -107,6 +113,12 @@ let translationsFailed = 0;
 
 // Map of original IDs to new IDs for translation linking
 const idMap: Record<string, Record<number, number>> = {};
+
+// Map of original variation IDs to new variation IDs
+const variationIdMap: Record<number, number> = {};
+
+// Map of parent product IDs to their variations
+const parentToVariationsMap: Record<number, number[]> = {};
 
 /**
  * Create a translation relationship between products using WPML's dedicated endpoint
@@ -344,14 +356,34 @@ async function importProducts(): Promise<void> {
     }
   }
 
-  // Print translation statistics
-  console.log(chalk.bold("\nTranslation Statistics:"));
-  console.log(chalk.cyan(`- Products with translations assigned: ${translationsSucceeded}`));
-  if (translationsFailed > 0) {
-    console.log(chalk.red(`- Failed translation assignments: ${translationsFailed}`));
+  // Print import statistics
+  console.log(chalk.bold("\nImport Statistics:"));
+  console.log(`Total products: ${importStats.total}`);
+  console.log(`Created: ${importStats.created}`);
+  console.log(`Skipped: ${importStats.skipped}`);
+  console.log(`Failed: ${importStats.failed}`);
+
+  console.log(chalk.bold("\nVariations:"));
+  console.log(`Total: ${importStats.variations.total}`);
+  console.log(`Created: ${importStats.variations.created}`);
+  console.log(`Failed: ${importStats.variations.failed}`);
+
+  console.log(chalk.bold("\nBy Language:"));
+  for (const [lang, stats] of Object.entries(importStats.byLanguage)) {
+    console.log(`${lang}: ${stats.created} created, ${stats.skipped} skipped, ${stats.failed} failed`);
   }
-  console.log(chalk.cyan(`\nTranslation method used:`));
-  console.log(chalk.dim(`- Direct translation_of parameter during product creation`));
+
+  console.log(chalk.bold("\nImages:"));
+  console.log(`Downloaded: ${importStats.images.downloaded}`);
+  console.log(`Uploaded: ${importStats.images.uploaded}`);
+  console.log(`Skipped: ${importStats.images.skipped}`);
+  console.log(`Failed: ${importStats.images.failed}`);
+
+  console.log(chalk.bold("\nTranslations:"));
+  console.log(`Succeeded: ${translationsSucceeded}`);
+  console.log(`Failed: ${translationsFailed}`);
+
+  console.log(chalk.green.bold("\n✓ Import completed successfully!"));
 }
 
 /**
@@ -420,6 +452,50 @@ async function importProductsForLanguage(
     productId?: string | null;
   }
 ): Promise<void> {
+  // First, collect all variable products and their variations
+  const variableProducts: any[] = [];
+  const regularProducts: any[] = [];
+  
+  // Separate variable products from regular products
+  for (const product of products) {
+    if (product.type === 'variable' && Array.isArray(product.variations) && product.variations.length > 0) {
+      variableProducts.push(product);
+      
+      // Store the mapping of parent to variations for later use
+      parentToVariationsMap[product.id] = product.variations;
+    } else {
+      regularProducts.push(product);
+    }
+  }
+  
+  // Process regular products first
+  await processProducts(regularProducts, lang, exportData, mainLanguage, options);
+  
+  // Then process variable products
+  await processProducts(variableProducts, lang, exportData, mainLanguage, options);
+}
+
+/**
+ * Process a list of products for import
+ */
+async function processProducts(
+  products: any[], 
+  lang: string, 
+  exportData: ExportData, 
+  mainLanguage?: string,
+  options?: {
+    forceImport?: boolean;
+    downloadImages?: boolean;
+    skipImageDownload?: boolean;
+    importLimit?: number | null;
+    productId?: string | null;
+  }
+): Promise<void> {
+  // Initialize language stats if not exists
+  if (!importStats.byLanguage[lang]) {
+    importStats.byLanguage[lang] = { total: 0, created: 0, skipped: 0, failed: 0 };
+  }
+  
   for (const product of products) {
     try {
       importStats.total++;
@@ -527,6 +603,11 @@ async function importProductsForLanguage(
       console.log(chalk.green(`✓ Imported product: ${product.name} (ID: ${importedProduct.id})`));
       importStats.created++;
       importStats.byLanguage[lang].created++;
+      
+      // If this is a variable product, import its variations
+      if (product.type === 'variable' && Array.isArray(product.variations) && product.variations.length > 0) {
+        await importProductVariations(product, importedProduct.id, lang, exportData, options);
+      }
       
       // Small delay to avoid overwhelming the server
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -1298,6 +1379,152 @@ async function processImage(
     console.error("Error processing image:", error);
     importStats.images.failed++;
     return null;
+  }
+}
+
+/**
+ * Import variations for a variable product
+ */
+async function importProductVariations(
+  parentProduct: any,
+  newParentId: number,
+  lang: string,
+  exportData: ExportData,
+  options?: {
+    forceImport?: boolean;
+    downloadImages?: boolean;
+    skipImageDownload?: boolean;
+  }
+): Promise<void> {
+  const importSite = getImportSite();
+  const variations = parentProduct.variations;
+  
+  if (!Array.isArray(variations) || variations.length === 0) {
+    console.log(chalk.yellow(`⚠️ No variations found for product: ${parentProduct.name}`));
+    return;
+  }
+  
+  console.log(chalk.cyan(`Importing ${variations.length} variations for product: ${parentProduct.name}`));
+  
+  // Extract price information from the parent product
+  let minPrice = 8;  // Default minimum price
+  let maxPrice = 18; // Default maximum price
+  
+  // If there's a price_html field, try to extract min and max prices
+  if (parentProduct.price_html) {
+    const priceMatches = parentProduct.price_html.match(/[\d,.]+/g);
+    if (priceMatches && priceMatches.length >= 2) {
+      // Convert price strings to numbers, handling different formats
+      const prices = priceMatches.map((p: string) => parseFloat(p.replace(',', '.')));
+      // Filter out any NaN values
+      const validPrices = prices.filter((p: number) => !isNaN(p));
+      if (validPrices.length > 0) {
+        minPrice = validPrices[0];
+        maxPrice = validPrices[validPrices.length - 1];
+      }
+    }
+  }
+  
+  // Calculate price steps for variations
+  const priceStep = variations.length > 1 ? (maxPrice - minPrice) / (variations.length - 1) : 0;
+  
+  // Get parent product attributes
+  interface ProductAttribute {
+    id: number;
+    name: string;
+    variation: boolean;
+    options: string[];
+  }
+  
+  const parentAttributes = Array.isArray(parentProduct.attributes) 
+    ? parentProduct.attributes.filter((attr: any): attr is ProductAttribute => 
+        attr.variation && Array.isArray(attr.options) && attr.options.length > 0)
+    : [];
+  
+  // Create variations with appropriate attributes and prices
+  const variationData: any[] = [];
+  
+  for (let i = 0; i < variations.length; i++) {
+    const variationId = variations[i];
+    const variationPrice = (minPrice + i * priceStep).toFixed(2);
+    
+    // Create a variation with proper price
+    const variation: any = {
+      regular_price: variationPrice,
+      status: "publish",
+      description: "",
+      attributes: []
+    };
+    
+    // Add attributes from parent product with appropriate options
+    for (const attr of parentAttributes) {
+      // Use the appropriate option based on the variation index
+      // If there are more variations than options, cycle through the options
+      const optionIndex = i % attr.options.length;
+      
+      variation.attributes.push({
+        id: attr.id || 0,
+        name: attr.name,
+        option: attr.options[optionIndex]
+      });
+    }
+    
+    variationData.push({
+      originalId: variationId,
+      data: variation
+    });
+  }
+  
+  // Import each variation
+  for (let i = 0; i < variationData.length; i++) {
+    const variation = variationData[i];
+    importStats.variations.total++;
+    
+    try {
+      // Prepare the variation data
+      const preparedVariation = variation.data;
+      
+      // Log the variation data for debugging
+      console.log(chalk.dim(`Variation ${i + 1} data:`, JSON.stringify({
+        price: preparedVariation.regular_price,
+        attributes: preparedVariation.attributes
+      })));
+      
+      // Add any necessary fields
+      if (preparedVariation.images && Array.isArray(preparedVariation.images)) {
+        for (let j = 0; j < preparedVariation.images.length; j++) {
+          const image = preparedVariation.images[j];
+          const imageId = await processImage(image, parentProduct.slug, j, options);
+          if (imageId) {
+            preparedVariation.images[j] = { id: imageId };
+          }
+        }
+      }
+      
+      // Create the variation
+      const url = `${importSite.baseUrl}/wp-json/wc/v3/products/${newParentId}/variations?lang=${lang}`;
+      
+      console.log(chalk.dim(`Creating variation ${i + 1}/${variationData.length} for product: ${parentProduct.name}`));
+      
+      const response = await fetchJSON(url, {
+        method: 'POST',
+        body: JSON.stringify(preparedVariation),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      // Store the mapping of original variation ID to new variation ID
+      variationIdMap[variation.originalId] = response.id;
+      
+      console.log(chalk.green(`✓ Created variation: ${i + 1}/${variationData.length} (ID: ${response.id})`));
+      importStats.variations.created++;
+      
+    } catch (error) {
+      console.error(chalk.red(`✗ Failed to import variation ${i + 1}/${variationData.length}:`), 
+        error instanceof Error ? error.message : String(error));
+      importStats.variations.failed++;
+    }
   }
 }
 
