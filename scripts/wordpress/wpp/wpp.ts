@@ -47,6 +47,8 @@ const testScript = path.join(__dirname, "commands/test.ts");
 // Utility scripts
 const downloadImagesScript = path.join(__dirname, "utils/download-images.ts");
 const convertToWebpScript = path.join(__dirname, "utils/convert-to-webp.ts");
+const listMediaScript = path.join(__dirname, "products/list-media.ts");
+const cleanupMediaMenuScript = path.join(__dirname, "products/cleanup-media-menu.ts");
 
 // Define content types
 type ContentType = "categories" | "products";
@@ -264,6 +266,7 @@ program
       process.exit(1);
     }
   });
+
 
 // Delete command
 program
@@ -956,13 +959,16 @@ async function showOperationsMenu(): Promise<void> {
     console.log(chalk.green("1. ") + chalk.bold("Cleanup by product slug") + chalk.dim(" - Delete media for specific product(s)"));
     console.log(chalk.green("2. ") + chalk.bold("Cleanup by media IDs") + chalk.dim(" - Delete specific media items by ID"));
     console.log(chalk.green("3. ") + chalk.bold("Cleanup ALL media") + chalk.dim(" - Delete ALL media items across all languages"));
+    console.log(chalk.green("4. ") + chalk.bold("List orphaned media") + chalk.dim(" - Show orphaned media without deleting"));
     
     const cleanupTypeAnswer = await new Promise<string>((resolve) => {
-      rlCleanupType.question(chalk.cyan("\nEnter your selection (1-3): "), resolve);
+      rlCleanupType.question(chalk.cyan("\nEnter your selection (1-4): "), resolve);
     });
     rlCleanupType.close();
     
     let cleanupArgs: string[] = [];
+    let needsConfirmation = true;
+    let operationType = "";
     
     if (cleanupTypeAnswer === "1") {
       // Cleanup by product slug
@@ -976,7 +982,7 @@ async function showOperationsMenu(): Promise<void> {
         const slugs = slugAnswer.split(",").map(s => s.trim()).filter(s => s);
         if (slugs.length > 0) {
           cleanupArgs = slugs;
-          console.log(chalk.yellow(`Will cleanup media for product(s): ${slugs.join(", ")}`));
+          operationType = `cleanup media for product(s): ${slugs.join(", ")}`;
         }
       } else {
         console.log(chalk.red("No product slugs provided. Operation cancelled."));
@@ -994,7 +1000,7 @@ async function showOperationsMenu(): Promise<void> {
         const ids = idsAnswer.split(",").map(s => s.trim()).filter(s => s);
         if (ids.length > 0) {
           cleanupArgs = ["--media-ids", ids.join(",")];
-          console.log(chalk.yellow(`Will cleanup media with IDs: ${ids.join(", ")}`));
+          operationType = `cleanup media with IDs: ${ids.join(", ")}`;
         }
       } else {
         console.log(chalk.red("No media IDs provided. Operation cancelled."));
@@ -1002,13 +1008,64 @@ async function showOperationsMenu(): Promise<void> {
       }
     } else if (cleanupTypeAnswer === "3") {
       // Cleanup ALL media
+      cleanupArgs = ["--all-media"];
+      operationType = "delete ALL orphaned media items across all languages";
+    } else if (cleanupTypeAnswer === "4") {
+      // List orphaned media
+      const listMediaScript = path.join(__dirname, "products/list-media.ts");
+      if (!fs.existsSync(listMediaScript)) {
+        console.error(chalk.red(`List media script not found at: ${listMediaScript}`));
+        process.exit(1);
+      }
+      
+      try {
+        await runScript(listMediaScript, []);
+      } catch (error) {
+        console.error(chalk.red("Error listing media:"), error);
+      }
+      
+      // Return to the operations menu after completion
+      console.log(chalk.blue("\nPress Enter to return to the menu..."));
+      const rlContinue = createPrompt();
+      await new Promise<void>((resolve) => {
+        rlContinue.question("", () => resolve());
+      });
+      rlContinue.close();
+      
+      return await showOperationsMenu();
+    } else {
+      console.log(chalk.red("Invalid selection. Operation cancelled."));
+      return await showOperationsMenu();
+    }
+    
+    // Single confirmation with all options
+    console.log(chalk.yellow("\nMedia Cleanup Options:"));
+    console.log(chalk.cyan(`• Operation: ${operationType}`));
+    
+    // Ask for thorough option
+    const rlOptions = createPrompt();
+    const thoroughAnswer = await new Promise<string>((resolve) => {
+      rlOptions.question(chalk.yellow("\nPerform thorough cleanup (search in additional directories)? (y/N): "), resolve);
+    });
+    rlOptions.close();
+    
+    if (thoroughAnswer.toLowerCase() === "y") {
+      cleanupArgs.push("--thorough");
+      console.log(chalk.cyan("• Thorough cleanup: Yes"));
+    } else {
+      console.log(chalk.cyan("• Thorough cleanup: No"));
+    }
+    
+    // Single confirmation for everything
+    if (needsConfirmation) {
       const rlConfirm = createPrompt();
+      const confirmMessage = cleanupTypeAnswer === "3" ?
+        chalk.red("\n⚠️ WARNING: This will DELETE ALL ORPHANED MEDIA ITEMS!\n") +
+        chalk.red("This operation cannot be undone! Proceed? (yes/no): ") :
+        chalk.yellow("\nProceed with media cleanup? (yes/no): ");
+      
       const confirmAnswer = await new Promise<string>((resolve) => {
-        rlConfirm.question(
-          chalk.red("\n⚠️ WARNING: This will DELETE ALL MEDIA ITEMS from the site!\n") +
-          chalk.red("This operation cannot be undone! Are you sure? (yes/no): "),
-          resolve
-        );
+        rlConfirm.question(confirmMessage, resolve);
       });
       rlConfirm.close();
       
@@ -1017,35 +1074,8 @@ async function showOperationsMenu(): Promise<void> {
         return await showOperationsMenu();
       }
       
-      cleanupArgs = ["--all-media"];
-      console.log(chalk.yellow("Will delete ALL media items from the site."));
-    } else {
-      console.log(chalk.red("Invalid selection. Operation cancelled."));
-      return await showOperationsMenu();
-    }
-    
-    // Ask for thorough cleanup
-    const rlThorough = createPrompt();
-    const thoroughAnswer = await new Promise<string>((resolve) => {
-      rlThorough.question(chalk.yellow("\nPerform thorough cleanup (search in additional directories)? (y/N): "), resolve);
-    });
-    rlThorough.close();
-    
-    if (thoroughAnswer.toLowerCase() === "y") {
-      cleanupArgs.push("--thorough");
-      console.log(chalk.yellow("Will perform thorough cleanup in additional directories."));
-    }
-    
-    // Ask for confirmation skip
-    const rlSkipConfirm = createPrompt();
-    const skipConfirmAnswer = await new Promise<string>((resolve) => {
-      rlSkipConfirm.question(chalk.yellow("\nSkip confirmation prompts during cleanup? (y/N): "), resolve);
-    });
-    rlSkipConfirm.close();
-    
-    if (skipConfirmAnswer.toLowerCase() === "y") {
+      // Skip further confirmations during cleanup
       cleanupArgs.push("--confirm");
-      console.log(chalk.yellow("Will skip confirmation prompts during cleanup."));
     }
     
     // Run the cleanup script
@@ -1266,12 +1296,17 @@ program
 
 // Cleanup media command (products only)
 program
-  .command("cleanup-media <product-slug>")
-  .description("Clean up all media items for a specific product (products only)")
-  .option("--confirm", "Skip confirmation prompt")
+  .command("cleanup-media")
+  .alias("media-cleanup")
+  .description("Interactive menu for cleaning up orphaned media across WPML languages (products only)")
+  .option("--product <slug>", "Clean up media for a specific product by slug")
+  .option("--media-ids <ids>", "Clean up specific media IDs (comma-separated)")
+  .option("--all", "Clean up all orphaned media")
+  .option("--list", "List orphaned media without deleting")
+  .option("--confirm", "Skip confirmation prompts")
   .option("--thorough", "Perform thorough cleanup of all possible media files")
   .option("--max-retries <number>", "Maximum number of retry attempts for API calls", "3")
-  .action(async (productSlug, options) => {
+  .action(async (options) => {
     try {
       // This command only works for products
       if (selectedContentType !== "products") {
@@ -1280,16 +1315,39 @@ program
         process.exit(1);
       }
       
-      // Check if script exists
+      // Check if scripts exist
       if (!fs.existsSync(productCleanupMediaScript)) {
         console.error(chalk.red.bold(`✗ Cleanup media script not found: ${productCleanupMediaScript}`));
         process.exit(1);
       }
       
-      displayHeader(`Cleaning Up Media for Product: ${productSlug}`);
+      // If no specific options are provided, show the interactive menu
+      if (!options.product && !options.mediaIds && !options.all && !options.list) {
+        displayHeader("Media Cleanup Interactive Menu");
+        await runScript(cleanupMediaMenuScript, []);
+        return;
+      }
       
-      // Build arguments
-      const args = [productSlug];
+      // Otherwise, run the cleanup script directly with the provided options
+      const args: string[] = [];
+      
+      if (options.product) {
+        displayHeader(`Cleaning Up Media for Product: ${options.product}`);
+        args.push(options.product);
+      } else if (options.mediaIds) {
+        displayHeader("Cleaning Up Media by IDs");
+        args.push("--media-ids", options.mediaIds);
+      } else if (options.all) {
+        displayHeader("Cleaning Up All Orphaned Media");
+        args.push("--all-media");
+      } else if (options.list) {
+        displayHeader("Listing Orphaned Media");
+        const listMediaScript = path.join(__dirname, "products/list-media.ts");
+        await runScript(listMediaScript, []);
+        return;
+      }
+      
+      // Add common options
       if (options.confirm) {
         args.push("--confirm");
       }

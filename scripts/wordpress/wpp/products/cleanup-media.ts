@@ -21,7 +21,7 @@ import * as readline from 'readline';
 // Parse command line arguments
 const args = process.argv.slice(2);
 const firstArg = args[0];
-const confirmFlag = args.includes("--confirm");
+let confirmFlag = args.includes("--confirm"); // Changed to let so we can modify it
 const thoroughFlag = args.includes("--thorough");
 const mediaIdsFlag = args.includes("--media-ids");
 const allMediaFlag = args.includes("--all-media");
@@ -59,7 +59,7 @@ if (args.includes("--retries")) {
     
     // Check if we're in all media mode
     if (allMediaFlag) {
-      // Confirm deletion
+      // Confirm deletion only if not already confirmed
       if (!confirmFlag) {
         console.log(chalk.yellow(`\n⚠️ WARNING: This will delete ALL media items from all languages!`));
         console.log(chalk.yellow(`This is a destructive operation that cannot be undone.`));
@@ -76,12 +76,16 @@ if (args.includes("--retries")) {
             console.log(chalk.blue(`Operation cancelled.`));
             process.exit(0);
           } else {
+            // Set confirmFlag to true to avoid additional confirmations
+            confirmFlag = true;
+            console.log(chalk.green(`Proceeding with media deletion...`));
             // Process all media
             await cleanupAllMedia();
           }
         });
       } else {
         // Skip confirmation
+        console.log(chalk.green(`Proceeding with media deletion (--confirm flag used)...`));
         await cleanupAllMedia();
       }
     }
@@ -115,12 +119,16 @@ if (args.includes("--retries")) {
             console.log(chalk.blue(`Operation cancelled.`));
             process.exit(0);
           } else {
+            // Set confirmFlag to true to avoid additional confirmations
+            confirmFlag = true;
+            console.log(chalk.green(`Proceeding with media deletion...`));
             // Process media IDs
             await cleanupMediaByIds(mediaIds);
           }
         });
       } else {
         // Skip confirmation
+        console.log(chalk.green(`Proceeding with media deletion (--confirm flag used)...`));
         await cleanupMediaByIds(mediaIds);
       }
     } else {
@@ -135,9 +143,9 @@ if (args.includes("--retries")) {
         process.exit(1);
       }
       
-      // Confirm deletion if not using --confirm flag
+      // Confirm deletion
       if (!confirmFlag) {
-        console.log(chalk.yellow(`\n⚠️ WARNING: This will delete all media for product: ${productSlug}`));
+        console.log(chalk.yellow(`\n⚠️ WARNING: This will delete all media items for product: ${productSlug}`));
         console.log(chalk.yellow(`Run with --confirm flag to skip this confirmation.`));
         
         const rl = readline.createInterface({
@@ -151,12 +159,16 @@ if (args.includes("--retries")) {
             console.log(chalk.blue(`Operation cancelled.`));
             process.exit(0);
           } else {
+            // Set confirmFlag to true to avoid additional confirmations
+            confirmFlag = true;
+            console.log(chalk.green(`Proceeding with media deletion...`));
             // Continue with deletion
             await deleteAllMediaForProduct(productSlug);
           }
         });
       } else {
         // Skip confirmation
+        console.log(chalk.green(`Proceeding with media deletion (--confirm flag used)...`));
         await deleteAllMediaForProduct(productSlug);
       }
     }
@@ -897,26 +909,8 @@ async function deleteAllMediaForProduct(productSlug: string): Promise<void> {
     console.log(chalk.cyan(`🔍 Cleaning up media for product: ${chalk.bold(productSlug)}`));
     console.log(chalk.cyan(`🔗 Using WordPress site: ${chalk.bold(baseUrl)}`));
     
-    // If confirmation is required, ask for it
-    if (!confirmFlag) {
-      console.log(chalk.red.bold(`⚠️ WARNING: This will delete ALL media items matching "${productSlug}" from the database and filesystem!`));
-      console.log(chalk.yellow("Run with --confirm flag to skip this confirmation."));
-      
-      const readline = require('readline').createInterface({
-        input: process.stdin,
-        output: process.stdout
-      });
-      
-      const answer = await new Promise<string>((resolve) => {
-        readline.question(chalk.red.bold('\nAre you sure you want to proceed? (y/n): '), resolve);
-      });
-      readline.close();
-      
-      if (answer.toLowerCase() !== "y" && answer.toLowerCase() !== "yes") {
-        console.log(chalk.blue("Cleanup cancelled."));
-        return;
-      }
-    }
+    // We've already confirmed at the top level, so no need to ask again
+    // The confirmFlag will be true by this point
     
     // Search for all media items containing the product slug
     // We'll use a higher per_page value to get more results at once
