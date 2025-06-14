@@ -7,7 +7,7 @@ import FormData from "form-data";
 import { execSync } from "child_process";
 import { DEFAULT_PATHS } from "../utils/constants";
 import { getImportSite, getExportSite } from "../utils/config-utils";
-import { fetchJSON, getSiteName } from "../utils/api";
+import { fetchJSON, fetchAllPages, getSiteName } from "../utils/api";
 import { getFlagEmoji } from "../utils/language";
 import { decodeSlug } from "../utils/formatting";
 import { limitImportData } from "../utils/limit-imports";
@@ -47,6 +47,10 @@ if (!fs.existsSync(siteWebpImagesDir)) {
 
 // Track image ID mappings
 const imageMapping: Record<number, number> = {};
+
+// Track category mappings (slug to ID)
+const categoryMapping: Record<string, number> = {};
+const categoryLanguageMapping: Record<string, Record<string, number>> = {}; // lang -> slug -> id
 
 interface ExportData {
   meta: {
@@ -157,6 +161,8 @@ async function createProductTranslationRelationship(
 }
 
 async function importProducts(): Promise<void> {
+  // Fetch all categories from the target site first to create the slug-to-ID mapping
+  await fetchAllCategories();
   // Reset translation statistics
   translationsSucceeded = 0;
   translationsFailed = 0;
@@ -524,6 +530,96 @@ async function importProductsForLanguage(
 }
 
 /**
+ * Fetch all categories from the target site and create a mapping of slugs to IDs
+ */
+async function fetchAllCategories(): Promise<void> {
+  const importSite = getImportSite();
+  const languages = [importSite.mainLanguage, ...importSite.otherLanguages];
+  
+  console.log(chalk.cyan('Fetching all categories from target site to create slug-to-ID mapping...'));
+  
+  // Fetch categories for each language
+  for (const lang of languages) {
+    try {
+      console.log(chalk.dim(`Fetching categories for language: ${lang}`));
+      const url = `${importSite.baseUrl}/wp-json/wc/v3/products/categories?per_page=100&lang=${lang}`;
+      const categories = await fetchAllPages(url);
+      
+      console.log(chalk.green(`✓ Found ${categories.length} categories for language: ${lang}`));
+      
+      // Initialize language mapping if not exists
+      if (!categoryLanguageMapping[lang]) {
+        categoryLanguageMapping[lang] = {};
+      }
+      
+      // Store mapping of slug to ID for this language
+      for (const category of categories) {
+        categoryLanguageMapping[lang][category.slug] = category.id;
+        
+        // For main language, also store in the main mapping
+        if (lang === importSite.mainLanguage) {
+          categoryMapping[category.slug] = category.id;
+        }
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error fetching categories for language ${lang}:`), 
+        error instanceof Error ? error.message : String(error));
+    }
+  }
+  
+  console.log(chalk.green(`✓ Created category mapping with ${Object.keys(categoryMapping).length} main language categories`));
+}
+
+/**
+ * Map category IDs from export data to target site IDs using slugs
+ */
+function mapCategoriesBySlug(categories: any[], lang: string): any[] {
+  if (!categories || !Array.isArray(categories) || categories.length === 0) {
+    return categories;
+  }
+  
+  const mappedCategories = [];
+  const langMapping = categoryLanguageMapping[lang] || {};
+  
+  // For each category in the product
+  for (const category of categories) {
+    // If we have the category slug
+    if (category.slug) {
+      // Try to find the category ID in the target site using the slug
+      if (langMapping[category.slug]) {
+        // Found a match by slug in the current language
+        mappedCategories.push({
+          id: langMapping[category.slug]
+        });
+        console.log(chalk.dim(`  Mapped category '${category.name || category.slug}' to ID: ${langMapping[category.slug]} (by slug)`));
+      } else if (categoryMapping[category.slug]) {
+        // Found a match in the main language
+        mappedCategories.push({
+          id: categoryMapping[category.slug]
+        });
+        console.log(chalk.dim(`  Mapped category '${category.name || category.slug}' to main language ID: ${categoryMapping[category.slug]} (by slug)`));
+      } else {
+        // No match found, log a warning and keep the original category
+        console.log(chalk.yellow(`  ⚠️ Could not find matching category for '${category.name || category.slug}' in target site`));
+        // Keep the original category data but remove the ID to avoid conflicts
+        const cleanCategory = { ...category };
+        delete cleanCategory.id;
+        mappedCategories.push(cleanCategory);
+      }
+    } else if (category.id) {
+      // No slug available, log a warning and keep the original category without ID
+      console.log(chalk.yellow(`  ⚠️ Category with ID ${category.id} has no slug, cannot map properly`));
+      // Keep the original category data but remove the ID to avoid conflicts
+      const cleanCategory = { ...category };
+      delete cleanCategory.id;
+      mappedCategories.push(cleanCategory);
+    }
+  }
+  
+  return mappedCategories;
+}
+
+/**
  * Prepare product data for import by downloading images and formatting data
  */
 async function prepareProductData(
@@ -546,6 +642,12 @@ async function prepareProductData(
   
   // Add language information
   cleanProduct.lang = lang;
+  
+  // Map categories by slug instead of ID
+  if (cleanProduct.categories && Array.isArray(cleanProduct.categories) && cleanProduct.categories.length > 0) {
+    console.log(chalk.cyan(`Mapping ${cleanProduct.categories.length} categories for product '${cleanProduct.name}'`));
+    cleanProduct.categories = mapCategoriesBySlug(cleanProduct.categories, lang);
+  }
   
   // Process images if present
   if (cleanProduct.images && Array.isArray(cleanProduct.images) && cleanProduct.images.length > 0) {
