@@ -42,6 +42,7 @@ const productCleanupMediaScript = path.join(__dirname, "products/cleanup-media.t
 const exportScript = path.join(__dirname, "commands/export.ts");
 const importScript = path.join(__dirname, "commands/import.ts");
 const deleteScript = path.join(__dirname, "commands/delete.ts");
+const cleanupScript = path.join(__dirname, "commands/cleanup.ts");
 const testScript = path.join(__dirname, "commands/test.ts");
 
 // Utility scripts
@@ -430,12 +431,17 @@ async function selectContentType(): Promise<void> {
     );
   });
   
-  // Add site management option
+  // Add additional options
   console.log("\n" + chalk.cyan("Other options:\n"));
   console.log(
     chalk.green(`${contentTypes.length + 1}. `) + 
     chalk.bold("Manage sites") + 
     chalk.dim(" - View and manage WordPress sites")
+  );
+  console.log(
+    chalk.green(`${contentTypes.length + 2}. `) + 
+    chalk.bold("Cleanup") + 
+    chalk.dim(" - Cleanup operations for products, categories, and media")
   );
   
   // Get user selection
@@ -447,17 +453,77 @@ async function selectContentType(): Promise<void> {
   
   const selectedIndex = parseInt(answer, 10) - 1;
   
-  // Check if the user selected the site management option
+  // Check if the user selected one of the additional options
   if (selectedIndex === contentTypes.length) {
     // Run the sites command
     await manageSites();
     // After managing sites, show the content type selection again
     return await selectContentType();
+  } else if (selectedIndex === contentTypes.length + 1) {
+    // Run the cleanup command
+    if (!fs.existsSync(cleanupScript)) {
+      console.error(chalk.red(`Cleanup script not found at: ${cleanupScript}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(cleanupScript)} script first.`));
+      process.exit(1);
+    }
+    
+    displayHeader(`Cleanup Operations`);
+    
+    // Show cleanup menu
+    const rl = createPrompt();
+    const answer = await new Promise<string>((resolve) => {
+      console.log(chalk.cyan("\nSelect a cleanup operation:"));
+      console.log(chalk.green("1. ") + chalk.bold("Delete all products") + chalk.dim(" - Delete all products from the site"));
+      console.log(chalk.green("2. ") + chalk.bold("Delete all categories") + chalk.dim(" - Delete all product categories from the site"));
+      console.log(chalk.green("3. ") + chalk.bold("Delete all media") + chalk.dim(" - Delete all media items from the site"));
+      console.log(chalk.green("4. ") + chalk.bold("Check orphaned media") + chalk.dim(" - List orphaned media items without deleting"));
+      console.log(chalk.green("5. ") + chalk.bold("Return to main menu") + chalk.dim(" - Go back to content type selection"));
+      rl.question(chalk.cyan("\nEnter your selection (1-5): "), resolve);
+    });
+    rl.close();
+    
+    // Prepare command arguments
+    const cmdArgs: string[] = [];
+    
+    // Execute the selected operation
+    switch (answer.trim()) {
+      case "1":
+        cmdArgs.unshift("products");
+        await runScript(cleanupScript, cmdArgs);
+        break;
+      case "2":
+        cmdArgs.unshift("categories");
+        await runScript(cleanupScript, cmdArgs);
+        break;
+      case "3":
+        cmdArgs.unshift("media");
+        await runScript(cleanupScript, cmdArgs);
+        break;
+      case "4":
+        cmdArgs.unshift("orphaned-media");
+        await runScript(cleanupScript, cmdArgs);
+        break;
+      case "5":
+        console.log(chalk.blue("Returning to main menu..."));
+        break;
+      default:
+        console.log(chalk.yellow("Invalid choice. Returning to main menu..."));
+    }
+    
+    // After cleanup, show the content type selection again
+    console.log(chalk.blue("\nPress Enter to return to the menu..."));
+    const rlContinue = createPrompt();
+    await new Promise<void>((resolve) => {
+      rlContinue.question("", () => resolve());
+    });
+    rlContinue.close();
+    
+    return await selectContentType();
   }
   
-  if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= contentTypes.length) {
+  if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= contentTypes.length + 2) {
     console.log(
-      chalk.red(`Invalid selection. Please enter a number between 1 and ${contentTypes.length + 1}`)
+      chalk.red(`Invalid selection. Please enter a number between 1 and ${contentTypes.length + 2}`)
     );
     process.exit(1);
   }
@@ -488,6 +554,7 @@ async function showOperationsMenu(): Promise<void> {
     { id: "import", name: `Import ${selectedContentType}`, description: `Import ${selectedContentType} to ${chalk.blue(importSite.name)}` },
     { id: "delete-import", name: `Delete & Import ${selectedContentType}`, description: `Delete all ${selectedContentType} and then import from export file` },
     { id: "delete", name: `Delete ${selectedContentType}`, description: `Delete all ${selectedContentType} from ${getImportSite().name}` },
+    { id: "cleanup", name: "Cleanup", description: "Cleanup operations for products, categories, and media" },
     { id: "test", name: `Test ${selectedContentType} data`, description: `Analyze and test the exported ${selectedContentType} data` },
     // Add media cleanup option only for products
     ...(selectedContentType === "products" ? [{ id: "cleanup-media", name: "Cleanup Media", description: "Delete orphaned media items across all languages" }] : []),
@@ -936,6 +1003,29 @@ async function showOperationsMenu(): Promise<void> {
     return await showOperationsMenu();
   }
   
+  // Handle cleanup operation
+  if (selectedOperation.id === "cleanup") {
+    // Check if script exists
+    if (!fs.existsSync(cleanupScript)) {
+      console.error(chalk.red(`Cleanup script not found at: ${cleanupScript}`));
+      console.log(chalk.yellow(`Please implement the ${path.basename(cleanupScript)} script first.`));
+      process.exit(1);
+    }
+    
+    displayHeader(`Cleanup Operations`);
+    await runScript(cleanupScript);
+    
+    // Return to the operations menu after completion
+    console.log(chalk.blue("\nPress Enter to return to the menu..."));
+    const rlContinue = createPrompt();
+    await new Promise<void>((resolve) => {
+      rlContinue.question("", () => resolve());
+    });
+    rlContinue.close();
+    
+    return await showOperationsMenu();
+  }
+  
   // Handle cleanup-media operation (products only)
   if (selectedOperation.id === "cleanup-media") {
     // This operation is only available for products
@@ -1268,6 +1358,68 @@ async function selectSite(type: "export" | "import"): Promise<void> {
     process.exit(1);
   }
 }
+
+// Cleanup command
+program
+  .command("cleanup")
+  .description("Cleanup operations for products, categories, and media")
+  .option("--confirm", "Skip confirmation prompt")
+  .option("--delete-images", "Also delete associated images (products only)")
+  .option("--thorough-cleanup", "Perform thorough media cleanup after deletion")
+  .action(async (options) => {
+    try {
+      displayHeader("Cleanup Operations");
+      
+      // Show cleanup menu
+      const rl = createPrompt();
+      const answer = await new Promise<string>((resolve) => {
+        console.log(chalk.cyan("\nSelect a cleanup operation:"));
+        console.log(chalk.cyan("1. Delete all products"));
+        console.log(chalk.cyan("2. Delete all categories"));
+        console.log(chalk.cyan("3. Delete all media"));
+        console.log(chalk.cyan("4. Check orphaned media"));
+        console.log(chalk.cyan("5. Back to main menu"));
+        rl.question(chalk.yellow("\nEnter your choice (1-5): "), resolve);
+      });
+      rl.close();
+      
+      // Prepare command arguments
+      const cmdArgs: string[] = [];
+      
+      // Add any provided options
+      if (options.confirm) cmdArgs.push("--confirm");
+      if (options.deleteImages) cmdArgs.push("--delete-images");
+      if (options.thoroughCleanup) cmdArgs.push("--thorough-cleanup");
+      
+      // Execute the selected operation
+      switch (answer.trim()) {
+        case "1":
+          cmdArgs.unshift("products");
+          await runScript(cleanupScript, cmdArgs);
+          break;
+        case "2":
+          cmdArgs.unshift("categories");
+          await runScript(cleanupScript, cmdArgs);
+          break;
+        case "3":
+          cmdArgs.unshift("media");
+          await runScript(cleanupScript, cmdArgs);
+          break;
+        case "4":
+          cmdArgs.unshift("orphaned-media");
+          await runScript(cleanupScript, cmdArgs);
+          break;
+        case "5":
+          console.log(chalk.blue("Returning to main menu..."));
+          break;
+        default:
+          console.log(chalk.yellow("Invalid choice. Returning to main menu..."));
+      }
+    } catch (error) {
+      console.error(chalk.red.bold("✗ Cleanup failed:"), error);
+      process.exit(1);
+    }
+  });
 
 // Test command
 program

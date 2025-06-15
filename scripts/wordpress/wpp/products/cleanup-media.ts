@@ -303,20 +303,11 @@ async function processMediaByLanguage(language: string, baseUrl: string, perPage
         console.log(chalk.dim(`    Deleting media ID ${item.id} (${item.title?.rendered || 'No title'})...`));
         
         try {
-          // Delete across all languages
+          // Delete across all languages - this will also handle physical file deletion
           const deleted = await deleteMediaItemInAllLanguages(item.id);
           
           if (deleted) {
             deletedCount++;
-            
-            // Delete physical files if they exist
-            if (item.source_url) {
-              const filePaths = getPhysicalFilePath(item.source_url, thoroughFlag);
-              if (filePaths.length > 0) {
-                const deletedFiles = deletePhysicalFiles(filePaths);
-                console.log(chalk.dim(`      Deleted ${deletedFiles} physical file(s)`));
-              }
-            }
           } else {
             failedCount++;
             console.log(chalk.yellow(`    ⚠️ Failed to delete media item ID ${item.id}`));
@@ -555,12 +546,38 @@ function deletePhysicalFilesMatchingPattern(directory: string, pattern: string):
  * @param lang - Optional language code to use for the deletion
  * @returns True if deletion was successful, false otherwise
  */
-async function deleteMediaItem(mediaId: number, lang?: string): Promise<boolean> {
+async function deleteMediaItem(mediaId: number, lang?: string): Promise<{success: boolean, sourceUrl?: string}> {
   try {
     const baseUrl = getImportBaseUrl();
-    let deleteUrl = `${baseUrl}/wp-json/wp/v2/media/${mediaId}?force=true`;
     
-    // Add language parameter if provided
+    // First, get the media item details to get the source URL
+    let getUrl = `${baseUrl}/wp-json/wp/v2/media/${mediaId}`;
+    if (lang) {
+      getUrl += `?lang=${lang}`;
+    }
+    
+    // Try to get the media item details
+    let mediaItem;
+    try {
+      mediaItem = await retryOperation(
+        async () => await fetchJSON(getUrl),
+        maxRetries,
+        `get media item ${mediaId}${lang ? ` in ${lang}` : ''}`
+      );
+    } catch (getError: any) {
+      // If 404, the item doesn't exist
+      if (getError.status === 404) {
+        console.log(chalk.dim(`Media item ${mediaId} not found${lang ? ` in ${lang}` : ''}`))
+        return { success: false };
+      }
+      throw getError;
+    }
+    
+    // Get the source URL before deleting
+    const sourceUrl = mediaItem?.source_url;
+    
+    // Now delete the media item
+    let deleteUrl = `${baseUrl}/wp-json/wp/v2/media/${mediaId}?force=true`;
     if (lang) {
       deleteUrl += `&lang=${lang}`;
     }
@@ -571,17 +588,17 @@ async function deleteMediaItem(mediaId: number, lang?: string): Promise<boolean>
       `delete media item ${mediaId}${lang ? ` in ${lang}` : ''}`
     );
     
-    return true;
+    return { success: true, sourceUrl };
   } catch (error: any) {
     // Check if it's a 404 error (item not found)
     if (error.status === 404) {
-      console.log(chalk.dim(`Media item ${mediaId} not found${lang ? ` in ${lang}` : ''}`));
-      return false;
+      console.log(chalk.dim(`Media item ${mediaId} not found${lang ? ` in ${lang}` : ''}`))
+      return { success: false };
     }
     
     // For other errors, log and return false
     console.log(chalk.yellow(`⚠️ Error deleting media item ${mediaId}${lang ? ` in ${lang}` : ''}: ${error.message || error}`));
-    return false;
+    return { success: false };
   }
 }
 
@@ -599,25 +616,54 @@ async function deleteMediaItemInAllLanguages(mediaId: number): Promise<boolean> 
     
     // First try direct deletion without language parameter
     const directResult = await deleteMediaItem(mediaId);
-    if (directResult) {
+    let sourceUrls: string[] = [];
+    
+    if (directResult.success) {
       console.log(chalk.green(`✓ Successfully deleted media item ${mediaId} directly`));
-      return true;
+      if (directResult.sourceUrl) {
+        sourceUrls.push(directResult.sourceUrl);
+      }
     }
     
-    // If direct deletion fails, try with specific languages
+    // If direct deletion fails or even if it succeeds, try with specific languages
+    // This ensures we catch all translations of the media item
     const languages = ['en', 'lt', 'lv', 'ru', 'de', 'fr', 'es', 'it', 'pl'];
-    let successInAnyLanguage = false;
+    let successInAnyLanguage = directResult.success;
     
     for (const lang of languages) {
       try {
         const langResult = await deleteMediaItem(mediaId, lang);
-        if (langResult) {
+        if (langResult.success) {
           console.log(chalk.green(`✓ Successfully deleted media item ${mediaId} in ${lang} language`));
           successInAnyLanguage = true;
+          if (langResult.sourceUrl && !sourceUrls.includes(langResult.sourceUrl)) {
+            sourceUrls.push(langResult.sourceUrl);
+          }
         }
       } catch (langError) {
         // Skip language-specific errors and continue with next language
         console.log(chalk.yellow(`⚠️ Error deleting media item ${mediaId} in ${lang} language: ${langError}`));
+      }
+    }
+    
+    // Delete physical files if we have source URLs
+    if (sourceUrls.length > 0) {
+      console.log(chalk.blue(`Deleting physical files for media ID ${mediaId}...`));
+      let deletedFilesCount = 0;
+      
+      for (const sourceUrl of sourceUrls) {
+        const filePaths = getPhysicalFilePath(sourceUrl, thoroughFlag);
+        if (filePaths.length > 0) {
+          const deletedFiles = deletePhysicalFiles(filePaths);
+          deletedFilesCount += deletedFiles;
+          console.log(chalk.dim(`  Deleted ${deletedFiles} physical file(s) for ${path.basename(sourceUrl)}`));
+        }
+      }
+      
+      if (deletedFilesCount > 0) {
+        console.log(chalk.green(`✓ Deleted ${deletedFilesCount} physical file(s) for media ID ${mediaId}`));
+      } else {
+        console.log(chalk.yellow(`⚠️ No physical files found for media ID ${mediaId}`));
       }
     }
     
