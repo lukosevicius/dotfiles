@@ -21,29 +21,33 @@ get_target()   { awk -F'\t' -v a="$1" '$1==a{print $2}' "$DB_FILE"; }
 add_entry() {
   local alias target
   if has_cmd gum; then
-    alias=$(gum input --placeholder "alias (e.g., prod)") || exit 1
+    alias=$(gum input --placeholder "alias (e.g., 7in, prod)") || exit 1
     [[ -z "${alias}" ]] && { echo "Alias required."; exit 1; }
     exists_alias "$alias" && { echo "Alias '$alias' already exists."; exit 1; }
     target=$(gum input --placeholder "ssh args/target (e.g., user@1.2.3.4 or -p 2222 user@host)") || exit 1
     [[ -z "${target}" ]] && { echo "Target required."; exit 1; }
   else
-    read -rp "Alias (e.g., prod): " alias
+    read -rp "Alias (e.g., 7in, prod): " alias
     [[ -z "${alias:-}" ]] && { echo "Alias required."; exit 1; }
     exists_alias "$alias" && { echo "Alias '$alias' already exists."; exit 1; }
     echo "SSH target/args (e.g., user@1.2.3.4 OR -p 2222 user@host):"
     read -r target
     [[ -z "${target:-}" ]] && { echo "Target required."; exit 1; }
   fi
+
   printf "%s\t%s\n" "$alias" "$target" >>"$DB_FILE"
-  # keep unique + sorted by alias
-  awk -F'\t' 'NF>=2{a[$1]=$0} END{n=asorti(a,idx); for(i=1;i<=n;i++) print a[idx[i]]}' "$DB_FILE" > "$DB_FILE.tmp"
-  mv "$DB_FILE.tmp" "$DB_FILE"
+
+  # dedupe by alias (keep last) and sort by alias (portable on macOS)
+  awk -F'\t' 'NF>=2{a[$1]=$0} END{for (k in a) print a[k]}' "$DB_FILE" \
+    | LC_ALL=C sort -t$'\t' -k1,1 > "$DB_FILE.tmp" \
+    && mv "$DB_FILE.tmp" "$DB_FILE"
+
   echo "Added: $alias → $target"
 }
 
 delete_entry() {
   local alias
-  # ---- portable read into array (no mapfile) ----
+  # portable read into array (no mapfile)
   aliases=()
   while IFS= read -r line; do [[ -n "$line" ]] && aliases+=("$line"); done < <(get_aliases)
   [[ ${#aliases[@]} -eq 0 ]] && { echo "No entries."; return 0; }
@@ -53,13 +57,14 @@ delete_entry() {
   else
     echo "Delete which alias?"
     select alias in "${aliases[@]}" "Cancel"; do
-      [[ "$REPLY" -eq $(( ${#aliases[@]} + 1 )) || "$alias" == "Cancel" ]] && return 0
+      [[ "$REPLY" -eq $(( ${#aliases[@]} + 1 )) || "${alias:-}" == "Cancel" ]] && return 0
       [[ -n "${alias:-}" ]] && break
       echo "Invalid."
     done
   fi
+
   awk -F'\t' -v a="$alias" '$1 != a' "$DB_FILE" > "$DB_FILE.tmp" && mv "$DB_FILE.tmp" "$DB_FILE"
-  echo "Deleted: $alias"
+  # no echo here (silent as requested)
 }
 
 login_alias() {
@@ -81,7 +86,7 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [alias|command]
 
-With no args, shows a menu:
+With no args, shows a menu (aliases first, then actions):
   1. <alias1>
   2. <alias2>
   3. add
@@ -104,7 +109,7 @@ EOF
 
 menu_loop() {
   while true; do
-    # ---- portable read into array (no mapfile) ----
+    # portable read into array (no mapfile)
     aliases=()
     while IFS= read -r line; do [[ -n "$line" ]] && aliases+=("$line"); done < <(get_aliases)
 
@@ -165,7 +170,7 @@ case "$arg" in
     if [[ -n "${2:-}" ]]; then
       exists_alias "$2" || { echo "Alias '$2' not found."; exit 1; }
       awk -F'\t' -v a="$2" '$1 != a' "$DB_FILE" > "$DB_FILE.tmp" && mv "$DB_FILE.tmp" "$DB_FILE"
-      echo "Deleted: $2"
+      # silent (no echo)
     else
       delete_entry
     fi
