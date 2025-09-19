@@ -84,8 +84,3 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 # use ruby from rbenv, not system's ruby
 export PATH="$HOME/.rbenv/bin:$PATH"
 eval "$(rbenv init - zsh)"
-
-# zoxide
-# https://github.com/ajeetdsouza/zoxide?tab=readme-ov-file
-eval "$(zoxide init zsh)"
-

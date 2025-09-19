@@ -13,7 +13,6 @@ alias la='ls -A'
 alias l='ls -CF'
 
 # cd
-alias cd='z'
 alias ~='cd ~'
 alias -- -="cd -"
 alias ..='cd ..'
@@ -58,4 +57,12 @@ alias front="cd ~/projects/origination-app-frontend"
 alias bank="cd ~/projects/saldo-bank-storyblok"
 alias app="cd ~/projects/saldo-mobile-app"
 alias pricing="cd ~/projects/pricing-api"
+alias bo="cd ~/projects/backoffice-ui"
+alias ext="cd ~/files/chrome-extensions"
+alias backend-config="code /Users/mantas/dotfiles/private/originationBackend.sh"
 
+# wp
+alias in-theme="cd ~/Studio/7in/wp-content/themes/7IN-theme"
+alias 7in-theme="cd ~/Studio/7in/wp-content/themes/7IN-theme"
+alias in-plugin="cd ~/Studio/7in/wp-content/plugins/7IN-plugin"
+alias 7in-plugin="cd ~/Studio/7in/wp-content/plugins/7IN-plugin"
