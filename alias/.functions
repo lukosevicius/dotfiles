@@ -109,9 +109,3 @@ function wp-install(){
   fi
   wp core install --url="http://"$1".local " --title=$1 --admin_user='admin' --admin_password='admin' --admin_email='man.lukosevicius@gmail.com'
 }
-
-theme() {
-  DOMAIN_DIR=$(find "$HOME/domains" -mindepth 1 -maxdepth 1 -type d | head -n 1)
-  THEME_DIR=$(find "$DOMAIN_DIR/public_html/wp-content/themes" -mindepth 1 -maxdepth 1 -type d | head -n 1)
-  cd "$THEME_DIR" || return
-}
