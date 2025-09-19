@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# resolve script dir
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="$SCRIPT_DIR/config"
+DB_FILE="$CONFIG_DIR/servers.tsv"
+
+mkdir -p "$CONFIG_DIR"
+touch "$DB_FILE"
+
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+list_entries() { awk -F'\t' 'NF>=2 {print $1 "\t" $2}' "$DB_FILE"; }
+get_aliases()  { list_entries | cut -f1; }
+exists_alias() { get_aliases | grep -Fxq "${1:?alias-required}"; }
+
+add_entry() {
+  local alias target
+  if has_cmd gum; then
+    alias=$(gum input --placeholder "alias (e.g., 7in, prod)") || exit 1
+    [[ -z "${alias}" ]] && { echo "Alias required."; exit 1; }
+    exists_alias "$alias" && { echo "Alias '$alias' already exists."; exit 1; }
+    target=$(gum input --placeholder "ssh target (e.g., root@1.2.3.4)") || exit 1
+    [[ -z "${target}" ]] && { echo "Target required."; exit 1; }
+  else
+    read -rp "Alias (e.g., 7in, prod): " alias
+    [[ -z "${alias:-}" ]] && { echo "Alias required."; exit 1; }
+    exists_alias "$alias" && { echo "Alias '$alias' already exists."; exit 1; }
+    read -rp "SSH target (e.g., root@1.2.3.4): " target
+    [[ -z "${target:-}" ]] && { echo "Target required."; exit 1; }
+  fi
+  printf "%s\t%s\n" "$alias" "$target" >>"$DB_FILE"
+  sort -u "$DB_FILE" -o "$DB_FILE"
+  echo "Added: $alias → $target"
+}
+
+delete_entry() {
+  local alias
+  if has_cmd gum; then
+    alias=$(get_aliases | gum choose --header "Choose alias to delete") || exit 1
+  else
+    mapfile -t aliases < <(get_aliases)
+    [[ ${#aliases[@]} -eq 0 ]] && { echo "No entries."; exit 0; }
+    PS3="Delete which alias? "
+    select alias in "${aliases[@]}" "Cancel"; do
+      [[ "$alias" == "Cancel" ]] && exit 0
+      [[ -n "${alias:-}" ]] && break
+      echo "Invalid."
+    done
+  fi
+  grep -Fv -e "^${alias}\t" "$DB_FILE" >"$DB_FILE.tmp" || true
+  mv "$DB_FILE.tmp" "$DB_FILE"
+  echo "Deleted: $alias"
+}
+
+choose_alias() {
+  if has_cmd gum; then
+    mapfile -t lines < <(list_entries | awk -F'\t' '{print $1 " — " $2}')
+    [[ ${#lines[@]} -eq 0 ]] && { echo "No servers saved. Use '$0 add' first."; exit 1; }
+    local picked
+    picked=$(printf "%s\n" "${lines[@]}" | gum choose --header "Select server") || exit 1
+    echo "${picked%% — *}"
+  else
+    mapfile -t entries < <(list_entries)
+    [[ ${#entries[@]} -eq 0 ]] && { echo "No servers saved. Use '$0 add' first."; exit 1; }
+    PS3="Login to which server? "
+    select line in "${entries[@]}" "Add new…" "Delete…" "Quit"; do
+      case "$REPLY" in
+        $(( ${#entries[@]} + 1 ))) add_entry; return 1 ;;
+        $(( ${#entries[@]} + 2 ))) delete_entry; return 1 ;;
+        $(( ${#entries[@]} + 3 ))) exit 0 ;;
+      esac
+      [[ -n "${line:-}" ]] && { echo "$line" | cut -f1; return 0; }
+      echo "Invalid."
+    done
+  fi
+}
+
+login_alias() {
+  local alias="$1"
+  local target
+  target=$(awk -F'\t' -v a="$alias" '$1==a{print $2}' "$DB_FILE")
+  [[ -z "$target" ]] && { echo "Alias '$alias' not found."; exit 1; }
+  echo "→ ssh $target"
+  exec ssh $target
+}
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [alias|command]
+
+If you pass an argument that matches a saved alias, it connects immediately:
+  $(basename "$0") 7in
+
+Commands:
+  (no arg)        Show menu and connect
+  add             Add a server (alias + ssh target)
+  delete          Delete a server (interactive)
+  delete <alias>  Delete a specific alias
+  list            List saved servers
+  file            Show database path
+  help            Show this help
+EOF
+}
+
+# --- dispatch ---
+arg="${1:-}"
+case "$arg" in
+  "" )
+    while true; do
+      if has_cmd gum; then
+        action=$(gum choose "Login" "Add" "Delete" "List" "Quit" --header "Server Manager") || exit 1
+        case "$action" in
+          Login) alias=$(choose_alias) || continue; login_alias "$alias" ;;
+          Add)   add_entry ;;
+          Delete) delete_entry ;;
+          List)  awk -F'\t' 'NF>=2 {printf "%-16s %s\n", $1, $2}' "$DB_FILE" ;;
+          Quit)  exit 0 ;;
+        esac
+      else
+        echo "== Server Manager =="
+        PS3="Choose action: "
+        select action in "Login" "Add" "Delete" "List" "Quit"; do
+          case "$action" in
+            Login) alias=$(choose_alias) || break; login_alias "$alias" ;;
+            Add)   add_entry; break ;;
+            Delete) delete_entry; break ;;
+            List)  awk -F'\t' 'NF>=2 {printf "%-16s %s\n", $1, $2}' "$DB_FILE"; break ;;
+            Quit)  exit 0 ;;
+            *) echo "Invalid." ;;
+          esac
+        done
+      fi
+    done
+    ;;
+  add) add_entry ;;
+  delete)
+    if [[ -n "${2:-}" ]]; then
+      exists_alias "$2" || { echo "Alias '$2' not found."; exit 1; }
+      grep -Fv -e "^${2}\t" "$DB_FILE" >"$DB_FILE.tmp" || true
+      mv "$DB_FILE.tmp" "$DB_FILE"
+      echo "Deleted: $2"
+    else
+      delete_entry
+    fi
+    ;;
+  list) awk -F'\t' 'NF>=2 {printf "%-16s %s\n", $1, $2}' "$DB_FILE" ;;
+  file) echo "$DB_FILE" ;;
+  help|-h|--help) usage ;;
+  *)
+    exists_alias "$arg" && login_alias "$arg" || { echo "Unknown alias or command: '$arg'"; usage; exit 1; }
+    ;;
+esac
