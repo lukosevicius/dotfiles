@@ -58,8 +58,7 @@ delete_entry() {
       echo "Invalid."
     done
   fi
-  grep -Fv -e "^${alias}\t" "$DB_FILE" >"$DB_FILE.tmp" || true
-  mv "$DB_FILE.tmp" "$DB_FILE"
+  awk -F'\t' -v a="$alias" '$1 != a' "$DB_FILE" > "$DB_FILE.tmp" && mv "$DB_FILE.tmp" "$DB_FILE"
   echo "Deleted: $alias"
 }
 
@@ -165,8 +164,7 @@ case "$arg" in
   delete)
     if [[ -n "${2:-}" ]]; then
       exists_alias "$2" || { echo "Alias '$2' not found."; exit 1; }
-      grep -Fv -e "^${2}\t" "$DB_FILE" >"$DB_FILE.tmp" || true
-      mv "$DB_FILE.tmp" "$DB_FILE"
+      awk -F'\t' -v a="$2" '$1 != a' "$DB_FILE" > "$DB_FILE.tmp" && mv "$DB_FILE.tmp" "$DB_FILE"
       echo "Deleted: $2"
     else
       delete_entry
