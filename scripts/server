@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# resolve script dir
+# --- paths (config next to this script) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/config"
 DB_FILE="$CONFIG_DIR/servers.tsv"
@@ -11,40 +11,49 @@ touch "$DB_FILE"
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+# --- data helpers ---
 list_entries() { awk -F'\t' 'NF>=2 {print $1 "\t" $2}' "$DB_FILE"; }
 get_aliases()  { list_entries | cut -f1; }
 exists_alias() { get_aliases | grep -Fxq "${1:?alias-required}"; }
+get_target()   { awk -F'\t' -v a="$1" '$1==a{print $2}' "$DB_FILE"; }
 
+# --- actions ---
 add_entry() {
   local alias target
   if has_cmd gum; then
-    alias=$(gum input --placeholder "alias (e.g., 7in, prod)") || exit 1
+    alias=$(gum input --placeholder "alias (e.g., prod)") || exit 1
     [[ -z "${alias}" ]] && { echo "Alias required."; exit 1; }
     exists_alias "$alias" && { echo "Alias '$alias' already exists."; exit 1; }
-    target=$(gum input --placeholder "ssh target (e.g., root@1.2.3.4)") || exit 1
+    target=$(gum input --placeholder "ssh args/target (e.g., user@1.2.3.4 or -p 2222 user@host)") || exit 1
     [[ -z "${target}" ]] && { echo "Target required."; exit 1; }
   else
-    read -rp "Alias (e.g., 7in, prod): " alias
+    read -rp "Alias (e.g., prod): " alias
     [[ -z "${alias:-}" ]] && { echo "Alias required."; exit 1; }
     exists_alias "$alias" && { echo "Alias '$alias' already exists."; exit 1; }
-    read -rp "SSH target (e.g., root@1.2.3.4): " target
+    echo "SSH target/args (e.g., user@1.2.3.4 OR -p 2222 user@host):"
+    read -r target
     [[ -z "${target:-}" ]] && { echo "Target required."; exit 1; }
   fi
   printf "%s\t%s\n" "$alias" "$target" >>"$DB_FILE"
-  sort -u "$DB_FILE" -o "$DB_FILE"
+  # keep unique + sorted by alias
+  awk -F'\t' 'NF>=2{a[$1]=$0} END{n=asorti(a,idx); for(i=1;i<=n;i++) print a[idx[i]]}' "$DB_FILE" > "$DB_FILE.tmp"
+  mv "$DB_FILE.tmp" "$DB_FILE"
   echo "Added: $alias → $target"
 }
 
 delete_entry() {
   local alias
+  # ---- portable read into array (no mapfile) ----
+  aliases=()
+  while IFS= read -r line; do [[ -n "$line" ]] && aliases+=("$line"); done < <(get_aliases)
+  [[ ${#aliases[@]} -eq 0 ]] && { echo "No entries."; return 0; }
+
   if has_cmd gum; then
-    alias=$(get_aliases | gum choose --header "Choose alias to delete") || exit 1
+    alias=$(printf "%s\n" "${aliases[@]}" | gum choose --header "Choose alias to delete") || exit 1
   else
-    mapfile -t aliases < <(get_aliases)
-    [[ ${#aliases[@]} -eq 0 ]] && { echo "No entries."; exit 0; }
-    PS3="Delete which alias? "
+    echo "Delete which alias?"
     select alias in "${aliases[@]}" "Cancel"; do
-      [[ "$alias" == "Cancel" ]] && exit 0
+      [[ "$REPLY" -eq $(( ${#aliases[@]} + 1 )) || "$alias" == "Cancel" ]] && return 0
       [[ -n "${alias:-}" ]] && break
       echo "Invalid."
     done
@@ -54,86 +63,104 @@ delete_entry() {
   echo "Deleted: $alias"
 }
 
-choose_alias() {
-  if has_cmd gum; then
-    mapfile -t lines < <(list_entries | awk -F'\t' '{print $1 " — " $2}')
-    [[ ${#lines[@]} -eq 0 ]] && { echo "No servers saved. Use '$0 add' first."; exit 1; }
-    local picked
-    picked=$(printf "%s\n" "${lines[@]}" | gum choose --header "Select server") || exit 1
-    echo "${picked%% — *}"
-  else
-    mapfile -t entries < <(list_entries)
-    [[ ${#entries[@]} -eq 0 ]] && { echo "No servers saved. Use '$0 add' first."; exit 1; }
-    PS3="Login to which server? "
-    select line in "${entries[@]}" "Add new…" "Delete…" "Quit"; do
-      case "$REPLY" in
-        $(( ${#entries[@]} + 1 ))) add_entry; return 1 ;;
-        $(( ${#entries[@]} + 2 ))) delete_entry; return 1 ;;
-        $(( ${#entries[@]} + 3 ))) exit 0 ;;
-      esac
-      [[ -n "${line:-}" ]] && { echo "$line" | cut -f1; return 0; }
-      echo "Invalid."
-    done
-  fi
-}
-
 login_alias() {
   local alias="$1"
   local target
-  target=$(awk -F'\t' -v a="$alias" '$1==a{print $2}' "$DB_FILE")
+  target="$(get_target "$alias")"
   [[ -z "$target" ]] && { echo "Alias '$alias' not found."; exit 1; }
   echo "→ ssh $target"
+  # allow multi-word targets/args like: -p 32344 user@host
+  # shellcheck disable=SC2086
   exec ssh $target
+}
+
+list_pretty() {
+  awk -F'\t' 'NF>=2 {printf "%-16s %s\n", $1, $2}' "$DB_FILE"
 }
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [alias|command]
 
-If you pass an argument that matches a saved alias, it connects immediately:
-  $(basename "$0") 7in
+With no args, shows a menu:
+  1. <alias1>
+  2. <alias2>
+  3. add
+  4. delete
+  5. quit
+
+Examples:
+  $(basename "$0")         # open menu
+  $(basename "$0") 7in     # instant login to alias 7in
 
 Commands:
-  (no arg)        Show menu and connect
-  add             Add a server (alias + ssh target)
-  delete          Delete a server (interactive)
-  delete <alias>  Delete a specific alias
-  list            List saved servers
-  file            Show database path
-  help            Show this help
+  add          Add a server
+  delete       Delete a server (choose)
+  delete <a>   Delete alias <a>
+  list         List saved servers
+  file         Show path to servers.tsv
+  help         Show this help
 EOF
+}
+
+menu_loop() {
+  while true; do
+    # ---- portable read into array (no mapfile) ----
+    aliases=()
+    while IFS= read -r line; do [[ -n "$line" ]] && aliases+=("$line"); done < <(get_aliases)
+
+    if has_cmd gum; then
+      options=("${aliases[@]}")
+      options+=("add" "delete" "quit")
+      picked=$(printf "%s\n" "${options[@]}" | gum choose --header "Server Manager") || exit 1
+      case "$picked" in
+        add) add_entry ;;
+        delete) delete_entry ;;
+        quit) exit 0 ;;
+        *) login_alias "$picked" ;;
+      esac
+    else
+      echo "== Server Manager =="
+      local i=1
+      for a in "${aliases[@]}"; do
+        printf "%d) %s\n" "$i" "$a"
+        ((i++))
+      done
+      local ADD=$i;   printf "%d) add\n" "$ADD";   ((i++))
+      local DEL=$i;   printf "%d) delete\n" "$DEL"; ((i++))
+      local QUIT=$i;  printf "%d) quit\n" "$QUIT"
+
+      printf "\nSelect: "
+      read -r choice
+      if [[ "$choice" =~ ^[0-9]+$ ]]; then
+        if (( choice>=1 && choice<=${#aliases[@]} )); then
+          login_alias "${aliases[$((choice-1))]}"
+        elif (( choice == ADD )); then
+          add_entry
+        elif (( choice == DEL )); then
+          delete_entry
+        elif (( choice == QUIT )); then
+          exit 0
+        else
+          echo "Invalid choice."
+        fi
+      else
+        case "$choice" in
+          add) add_entry ;;
+          delete) delete_entry ;;
+          quit|q|exit) exit 0 ;;
+          *) exists_alias "$choice" && login_alias "$choice" || echo "Unknown option '$choice'." ;;
+        esac
+      fi
+      echo
+    fi
+  done
 }
 
 # --- dispatch ---
 arg="${1:-}"
 case "$arg" in
-  "" )
-    while true; do
-      if has_cmd gum; then
-        action=$(gum choose "Login" "Add" "Delete" "List" "Quit" --header "Server Manager") || exit 1
-        case "$action" in
-          Login) alias=$(choose_alias) || continue; login_alias "$alias" ;;
-          Add)   add_entry ;;
-          Delete) delete_entry ;;
-          List)  awk -F'\t' 'NF>=2 {printf "%-16s %s\n", $1, $2}' "$DB_FILE" ;;
-          Quit)  exit 0 ;;
-        esac
-      else
-        echo "== Server Manager =="
-        PS3="Choose action: "
-        select action in "Login" "Add" "Delete" "List" "Quit"; do
-          case "$action" in
-            Login) alias=$(choose_alias) || break; login_alias "$alias" ;;
-            Add)   add_entry; break ;;
-            Delete) delete_entry; break ;;
-            List)  awk -F'\t' 'NF>=2 {printf "%-16s %s\n", $1, $2}' "$DB_FILE"; break ;;
-            Quit)  exit 0 ;;
-            *) echo "Invalid." ;;
-          esac
-        done
-      fi
-    done
-    ;;
+  "" ) menu_loop ;;
   add) add_entry ;;
   delete)
     if [[ -n "${2:-}" ]]; then
@@ -145,7 +172,7 @@ case "$arg" in
       delete_entry
     fi
     ;;
-  list) awk -F'\t' 'NF>=2 {printf "%-16s %s\n", $1, $2}' "$DB_FILE" ;;
+  list) list_pretty ;;
   file) echo "$DB_FILE" ;;
   help|-h|--help) usage ;;
   *)
