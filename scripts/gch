@@ -1,0 +1,6 @@
+#!/bin/bash
+
+LESS='FRX'
+result=$(glab mr list | fzf)
+number=$(awk '{for(i=1;i<=NF;i++) if ($i ~ /^![0-9]+$/) {print substr($i,2); exit}}' <<< "$result")
+glab mr checkout "$number"
