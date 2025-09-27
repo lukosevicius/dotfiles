@@ -1,6 +1,77 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 LESS='FRX'
-result=$(glab mr list | fzf)
-number=$(awk '{for(i=1;i<=NF;i++) if ($i ~ /^![0-9]+$/) {print substr($i,2); exit}}' <<< "$result")
-glab mr checkout "$number"
+REMOTE="${GCH_REMOTE:-origin}"   # allow override, default to origin
+
+branch_exists_local() {
+  git show-ref --verify --quiet "refs/heads/$1"
+}
+
+branch_exists_remote() {
+  git show-ref --verify --quiet "refs/remotes/$REMOTE/$1"
+}
+
+# --- Direct mode: argument is ALWAYS a branch name ---
+if [[ $# -ge 1 ]]; then
+  branch="$1"
+
+  if branch_exists_local "$branch"; then
+    git switch "$branch" 2>/dev/null || git checkout "$branch"
+    exit 0
+  fi
+
+  # Not local -> fetch and try remote
+  git fetch --prune "$REMOTE"
+  if branch_exists_remote "$branch"; then
+    # Create local branch tracking remote
+    git switch -c "$branch" --track "$REMOTE/$branch" 2>/dev/null || git checkout -t "$REMOTE/$branch"
+    exit 0
+  fi
+
+  echo "✗ Branch '$branch' not found locally or on remote '$REMOTE'." >&2
+  exit 1
+fi
+
+# --- Interactive mode (fzf): MRs + selected branches ---
+# Get merge requests
+mrs=$(glab mr list)
+
+# Branches to always try to include if they exist
+extra_branches="main master dev"
+
+# Ensure remote refs are fresh before checking
+git fetch --prune "$REMOTE" >/dev/null 2>&1 || true
+
+branches=()
+for candidate in $extra_branches; do
+  if branch_exists_local "$candidate" || branch_exists_remote "$candidate"; then
+    branches+=("$candidate")
+  fi
+done
+
+# Combine MR list with branches
+choices=$(printf "%s\n" "$mrs" "${branches[@]}")
+
+# Fuzzy select
+result=$(echo "$choices" | fzf)
+
+# If the line starts with !<num>, it's an MR; otherwise treat as branch
+if [[ "$result" =~ ^![0-9]+ ]]; then
+  number=$(awk '{for(i=1;i<=NF;i++) if ($i ~ /^![0-9]+$/) {print substr($i,2); exit}}' <<< "$result")
+  glab mr checkout "$number"
+else
+  # Try local, else fetch+track from remote
+  sel="$result"
+  if branch_exists_local "$sel"; then
+    git switch "$sel" 2>/dev/null || git checkout "$sel"
+  else
+    git fetch --prune "$REMOTE"
+    if branch_exists_remote "$sel"; then
+      git switch -c "$sel" --track "$REMOTE/$sel" 2>/dev/null || git checkout -t "$REMOTE/$sel"
+    else
+      echo "✗ Branch '$sel' not found locally or on remote '$REMOTE'." >&2
+      exit 1
+    fi
+  fi
+fi
