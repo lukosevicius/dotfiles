@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- paths ---
+ENTRY_DIR="$HOME/Library/Application Support/Local/ssh-entry"
+
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [command]
+
+No args: show a menu of LocalWP SSH entry scripts and run the chosen one.
+
+Commands:
+  list     List discovered entries
+  help     Show this help
+EOF
+}
+
+# Extract the human-readable name from the 2nd line of a .sh file.
+# Handles echo/printf variants like:
+#   echo -n -e "\033]0;7IN (test) Shell\007"
+#   echo -n -e "\033]0;7IN Shell\007"
+#   printf '\033]0;7IN Shell\a'
+get_name_from_script() {
+  local f="$1" line name bel
+  bel=$'\a'  # actual BEL char (0x07)
+
+  # Read second line (BSD sed compatible)
+  line="$(sed -n '2p' "$f" 2>/dev/null || true)"
+
+  # Only try to parse if we see the OSC marker
+  if [[ "$line" == *"]0;"* ]]; then
+    # Take everything after the first "]0;"
+    name="${line#*]0;}"
+    # Trim at first terminator variant
+    name="${name%%\\007*}"   # backslash 007
+    name="${name%%\\a*}"     # backslash a
+    name="${name%%$bel*}"    # actual BEL char if present
+    # Strip surrounding quotes if any
+    name="${name%\"}"; name="${name#\"}"
+    name="${name%\'}"; name="${name#\'}"
+    # Trim leading/trailing spaces
+    name="${name#"${name%%[![:space:]]*}"}"
+    name="${name%"${name##*[![:space:]]}"}"
+  else
+    name=""
+  fi
+
+  if [[ -n "$name" ]]; then
+    printf '%s' "$name"
+  else
+    # Fallback: filename without extension
+    basename "$f" .sh
+  fi
+}
+
+# --- Scan entry folder ---
+scan_entries() {
+  NAMES=()
+  FILES=()
+
+  [[ -d "$ENTRY_DIR" ]] || return 0
+
+  # Use find with -print0 for safety
+  while IFS= read -r -d '' f; do
+    [[ -f "$f" ]] || continue
+    local name
+    name="$(get_name_from_script "$f")"
+    NAMES+=("$name")
+    FILES+=("$f")
+  done < <(find "$ENTRY_DIR" -maxdepth 1 -type f -name '*.sh' -print0 2>/dev/null)
+
+  # Sort by name while keeping FILES in sync (portable, no mapfile)
+  if ((${#NAMES[@]} > 1)); then
+    local tmpfile
+    tmpfile="$(mktemp)"
+    for i in "${!NAMES[@]}"; do
+      printf "%s\t%s\n" "${NAMES[$i]}" "${FILES[$i]}"
+    done | LC_ALL=C sort -t$'\t' -k1,1 >"$tmpfile"
+
+    NAMES=()
+    FILES=()
+    while IFS=$'\t' read -r n f; do
+      NAMES+=("$n")
+      FILES+=("$f")
+    done <"$tmpfile"
+    rm -f "$tmpfile"
+  fi
+}
+
+list_entries_pretty() {
+  scan_entries
+  if ((${#NAMES[@]}==0)); then
+    echo "No entries found in: $ENTRY_DIR"
+    return 0
+  fi
+  local i=1
+  for name in "${NAMES[@]}"; do
+    printf "%2d.  %s\n" "$i" "$name"
+    ((i++))
+  done
+}
+
+run_entry_by_index() {
+  local idx="$1"
+  local script="${FILES[$idx]}"
+  if [[ ! -e "$script" ]]; then
+    echo "Script not found: $script"
+    exit 1
+  fi
+
+  # If not executable, run with bash; otherwise exec directly
+  if [[ -x "$script" ]]; then
+    exec "$script"
+  else
+    exec bash "$script"
+  fi
+}
+
+menu_and_run() {
+  scan_entries
+  if ((${#NAMES[@]}==0)); then
+    echo "No .sh entries found in:"
+    echo "  $ENTRY_DIR"
+    exit 1
+  fi
+
+  if has_cmd gum; then
+    local picked idx=-1
+    picked="$(printf "%s\n" "${NAMES[@]}" | gum choose --header "LocalWP SSH Entries")" || exit 1
+    for i in "${!NAMES[@]}"; do
+      [[ "${NAMES[$i]}" == "$picked" ]] && { idx="$i"; break; }
+    done
+    (( idx < 0 )) && { echo "Selection not found."; exit 1; }
+    run_entry_by_index "$idx"
+  else
+    echo "== LocalWP SSH Entries =="
+    local i=1
+    for name in "${NAMES[@]}"; do
+      printf "%2d) %s\n" "$i" "$name"
+      ((i++))
+    done
+    local QUIT=$i
+    printf "%2d) quit\n" "$QUIT"
+
+    printf "\nSelect: "
+    read -r choice
+    if [[ "$choice" =~ ^[0-9]+$ ]]; then
+      if (( choice>=1 && choice<=${#NAMES[@]} )); then
+        run_entry_by_index $((choice-1))
+      elif (( choice == QUIT )); then
+        exit 0
+      else
+        echo "Invalid choice."
+        exit 1
+      fi
+    else
+      case "$choice" in
+        quit|q|exit) exit 0 ;;
+        *) echo "Invalid input."; exit 1 ;;
+      esac
+    fi
+  fi
+}
+
+# --- dispatch ---
+arg="${1:-}"
+case "$arg" in
+  "" ) menu_and_run ;;
+  list ) list_entries_pretty ;;
+  help|-h|--help) usage ;;
+  * ) echo "Unknown command: $arg"; usage; exit 1 ;;
+esac
