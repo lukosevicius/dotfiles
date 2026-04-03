@@ -55,12 +55,6 @@ export EDITOR="$VISUAL"
   # eval $(dircolors ~/.dircolors)
 # fi
 
-# source ~/.nvm/nvm.sh
-export NVM_DIR="$HOME/.nvm"
-[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
-[ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
-
-export PATH="/usr/local/opt/php:$PATH"
 
 # colorize man pages
 
@@ -72,15 +66,12 @@ export LESS_TERMCAP_so=$'\e[01;33m'
 export LESS_TERMCAP_ue=$'\e[0m'
 # export LESS_TERMCAP_us=$'\e[1;4;31m'source ~/powerlevel10k/powerlevel10k.zsh-theme
 
-# for Volta to work with React Native
-unset _VOLTA_TOOL_RECURSION
+# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
+[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-export ANDROID_HOME=~/Library/Android/sdk
-export PATH=$PATH:$ANDROID_HOME/emulator
-export PATH=$PATH:$ANDROID_HOME/tools
-export PATH=$PATH:$ANDROID_HOME/tools/bin
-export PATH=$PATH:$ANDROID_HOME/platform-tools
+# bun completions
+[ -s "/Users/mantas/.bun/_bun" ] && source "/Users/mantas/.bun/_bun"
 
-# use ruby from rbenv, not system's ruby
-export PATH="$HOME/.rbenv/bin:$PATH"
-eval "$(rbenv init - zsh)"
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"

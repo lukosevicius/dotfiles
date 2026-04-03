@@ -109,13 +109,18 @@ EOF
 
 menu_loop() {
   while true; do
-    # portable read into array (no mapfile)
     aliases=()
-    while IFS= read -r line; do [[ -n "$line" ]] && aliases+=("$line"); done < <(get_aliases)
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && aliases+=("$line")
+    done < <(get_aliases)
 
     if has_cmd gum; then
-      options=("${aliases[@]}")
+      options=()
+      for a in ${aliases[@]+"${aliases[@]}"}; do
+        options+=("$a")
+      done
       options+=("add" "delete" "quit")
+
       picked=$(printf "%s\n" "${options[@]}" | gum choose --header "Server Manager") || exit 1
       case "$picked" in
         add) add_entry ;;
@@ -126,18 +131,21 @@ menu_loop() {
     else
       echo "== Server Manager =="
       local i=1
-      for a in "${aliases[@]}"; do
+      for a in ${aliases[@]+"${aliases[@]}"}; do
         printf "%d) %s\n" "$i" "$a"
         ((i++))
       done
+
+      local alias_count=${#aliases[@]}
       local ADD=$i;   printf "%d) add\n" "$ADD";   ((i++))
       local DEL=$i;   printf "%d) delete\n" "$DEL"; ((i++))
       local QUIT=$i;  printf "%d) quit\n" "$QUIT"
 
       printf "\nSelect: "
       read -r choice
+
       if [[ "$choice" =~ ^[0-9]+$ ]]; then
-        if (( choice>=1 && choice<=${#aliases[@]} )); then
+        if (( choice >= 1 && choice <= alias_count )); then
           login_alias "${aliases[$((choice-1))]}"
         elif (( choice == ADD )); then
           add_entry

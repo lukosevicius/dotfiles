@@ -44,3 +44,7 @@ alias h="history | fzf"
 alias sizes="du -sh * .[^.]* 2>/dev/null | sort -hr"
 
 alias wpp='cd /Users/mantas/dotfiles/scripts/wordpress/wpp && yarn ts-node /Users/mantas/dotfiles/scripts/wordpress/wpp/wpp.ts'
+
+alias filesize='du -h'
+
+alias exporter='node $HOME/projects/exporter/exporter.js'
