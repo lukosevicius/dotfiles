@@ -16,5 +16,7 @@ alias dev="git checkout dev"
 alias main="git checkout main"
 alias master="git checkout master"
 
-alias uncommit="git reset --soft HEAD^"
+uncommit() { git reset --soft HEAD~${1:-1}; }
+nuke() { git reset --hard HEAD && git clean -fd; }
+
 alias clearBranches="git branch | grep -vE 'dev|main|master' | xargs git branch -D"
